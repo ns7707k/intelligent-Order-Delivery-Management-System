@@ -44,6 +44,7 @@ def create_app(config_name='development'):
         "http://localhost:3000",
         "http://localhost:5173",
         "https://intelligent-order-delivery-management-system-4jk3cf9fj.vercel.app",
+        "https://intelligent-order-delivery-manageme.vercel.app",
         "https://*.vercel.app",
     ]
 
