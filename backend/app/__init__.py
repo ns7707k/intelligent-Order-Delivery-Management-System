@@ -32,11 +32,30 @@ def create_app(config_name='development'):
     migrate.init_app(app, db)
     jwt.init_app(app)
 
-    # CORS setup - split comma-separated origins string into a list
+    # CORS setup
+    # Reads from CORS_ORIGINS env var (comma-separated) but always includes
+    # localhost and Vercel domains as a hardcoded safety net
     cors_origins = app.config.get('CORS_ORIGINS', '*')
     if isinstance(cors_origins, str) and cors_origins != '*':
         cors_origins = [o.strip() for o in cors_origins.split(',')]
-    CORS(app, resources={r"/api/*": {"origins": cors_origins}},
+
+    # Always include these regardless of env var
+    always_allowed = [
+        "http://localhost:3000",
+        "http://localhost:5173",
+        "https://intelligent-order-delivery-management.vercel.app",
+        "https://*.vercel.app",
+    ]
+
+    if isinstance(cors_origins, list):
+        # Merge, deduplicate
+        cors_origins = list(set(cors_origins + always_allowed))
+    else:
+        # cors_origins was '*' — keep it as wildcard
+        cors_origins = '*'
+
+    CORS(app,
+         resources={r"/api/*": {"origins": cors_origins}},
          supports_credentials=True,
          allow_headers=["Content-Type", "Authorization"],
          methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
@@ -71,7 +90,6 @@ def create_app(config_name='development'):
 
     @app.before_request
     def _enforce_api_authentication():
-        # In testing mode, skip JWT enforcement to simplify test interactions
         if app.config.get('TESTING'):
             return None
         if request.method == 'OPTIONS':
@@ -91,8 +109,6 @@ def create_app(config_name='development'):
     register_error_handlers(app)
 
     should_restore_lifecycles = not app.debug or os.environ.get('WERKZEUG_RUN_MAIN') == 'true'
-    # During tests we do not want to attempt restoring background lifecycles
-    # because the test harness often overrides DB config after app creation.
     if not app.config.get('TESTING') and should_restore_lifecycles:
         from .services.order_lifecycle import restore_active_lifecycles
         restore_active_lifecycles(app)
