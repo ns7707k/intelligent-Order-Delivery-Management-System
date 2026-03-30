@@ -43,7 +43,7 @@ def create_app(config_name='development'):
     always_allowed = [
         "http://localhost:3000",
         "http://localhost:5173",
-        "https://intelligent-order-delivery-management.vercel.app",
+        ""https://intelligent-order-delivery-management-system-4jk3cf9fj.vercel.app",",
         "https://*.vercel.app",
     ]
 
