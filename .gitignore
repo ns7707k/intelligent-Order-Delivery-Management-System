@@ -1,0 +1,57 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# Virtual environments
+venv/
+.venv/
+backend/venv/
+
+# Environment files
+.env
+backend/.env
+
+# Local database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Node
+node_modules/
+frontend/dist/
+
+# Packaging
+build/
+dist/
+*.egg-info/
+
+# Coverage
+.coverage
+coverage.xml
+
+# IDEs and editors
+.vscode/
+.idea/
+
+# Logs
+*.log
+logs/
+
+# Secrets and keys
+secrets/
+*.pem
+*.key
+
+# Misc
+*.swp
+*.tmp
+
+# Local outputs
+data_pipeline/output/
+replays/
+
+# OS files
+Thumbs.db
