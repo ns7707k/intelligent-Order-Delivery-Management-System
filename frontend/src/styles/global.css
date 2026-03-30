@@ -1,0 +1,96 @@
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap');
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Manrope', 'Segoe UI', 'Helvetica Neue', 'Arial', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background-color: #F0F2F7;
+  color: #374151;
+}
+
+#root {
+  height: 100vh;
+  width: 100vw;
+}
+
+/* ── Leaflet map container ── */
+.leaflet-container {
+  width: 100%;
+  height: 100%;
+  z-index: 1;
+}
+
+/* ── Voice listening pulse animation ── */
+@keyframes pulse {
+  0% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.08); opacity: 0.85; }
+  100% { transform: scale(1); opacity: 1; }
+}
+.listening-pulse {
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+/* ── Subtle glow for active voice ── */
+@keyframes voiceGlow {
+  0%, 100% { box-shadow: 0 0 8px rgba(59,130,246,0.3); }
+  50% { box-shadow: 0 0 20px rgba(59,130,246,0.6); }
+}
+.voice-glow {
+  animation: voiceGlow 2s ease-in-out infinite;
+}
+
+/* ── Dot loading indicator ── */
+@keyframes dotBlink {
+  0%, 80%, 100% { opacity: 0; }
+  40% { opacity: 1; }
+}
+.dot-loading span { animation: dotBlink 1.4s infinite both; }
+.dot-loading span:nth-child(2) { animation-delay: 0.2s; }
+.dot-loading span:nth-child(3) { animation-delay: 0.4s; }
+
+/* ── High contrast overlay for confirmation ── */
+.confirmation-overlay {
+  backdrop-filter: blur(8px);
+  background-color: rgba(15, 23, 42, 0.6) !important;
+}
+
+/* ── Smooth page transitions ── */
+.fade-enter { opacity: 0; transform: translateY(8px); }
+.fade-enter-active { opacity: 1; transform: translateY(0); transition: all 0.3s ease; }
+
+/* ── Card hover lift ── */
+.card-hover { transition: all 0.25s ease; }
+.card-hover:hover { transform: translateY(-2px); box-shadow: 0 12px 32px rgba(15, 23, 42, 0.08); }
+
+/* ── Status badge shimmer for "live" indicators ── */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.live-badge {
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent);
+  background-size: 200% 100%;
+  animation: shimmer 2s infinite;
+}
+
+/* ── Responsive text sizing for tablets ── */
+@media (max-width: 960px) {
+  body { font-size: 16px; }
+}
+
+/* ── Kitchen view optimizations for wall-mounted tablets ── */
+@media (orientation: portrait) and (max-width: 768px) {
+  .kitchen-card { padding: 1.25rem; margin: 0.75rem 0; }
+  .kitchen-button { min-height: 56px; font-size: 1.1rem; }
+}
+
+/* ── Manager dashboard ── */
+@media (min-width: 1280px) {
+  .manager-sidebar { width: 350px; }
+}

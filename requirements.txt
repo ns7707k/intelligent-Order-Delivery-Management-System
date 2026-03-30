@@ -1,0 +1,6 @@
+-r backend/requirements.txt
+
+# Dev/test extras
+pytest
+pytest-flask
+python-dotenv
