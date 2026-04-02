@@ -1,0 +1,17 @@
+{
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ]
+}
+```
+
+Commit it. Vercel will auto-redeploy in about 30 seconds.
+
+After that, all three of these will work correctly:
+```
+https://intelligent-order-delivery-manageme.vercel.app
+https://intelligent-order-delivery-manageme.vercel.app/login
+https://intelligent-order-delivery-manageme.vercel.app/kitchen
