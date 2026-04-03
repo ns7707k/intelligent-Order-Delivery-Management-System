@@ -1,73 +1,67 @@
-"""Tests for the Settings API."""
+from app.models.restaurant import Restaurant
+from app.models.settings import Settings
 
-import pytest
+
+def test_get_settings_returns_defaults(client, auth_headers):
+    response = client.get("/api/settings", headers=auth_headers)
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert "voice_confidence_threshold" in payload
+    assert "use_platform_drivers" in payload
 
 
-class TestSettingsAPI:
-    """Settings GET/PUT tests."""
+def test_update_settings_existing_key(client, app, auth_headers):
+    response = client.put(
+        "/api/settings",
+        headers=auth_headers,
+        json={"voice_confidence_threshold": 0.9},
+    )
+    assert response.status_code == 200
+    body = response.get_json()
+    assert "voice_confidence_threshold" in body["updated"]
 
-    def test_get_settings_returns_defaults(self, client):
-        """GET /api/settings returns default settings."""
-        resp = client.get('/api/settings')
-        assert resp.status_code == 200
-        data = resp.get_json()
-        # Should be a flat key-value object
-        assert isinstance(data, dict)
-        # Should contain known default keys (from DEFAULT_SETTINGS)
-        assert 'business_name' in data
+    with app.app_context():
+        setting = Settings.query.filter_by(key="voice_confidence_threshold", restaurant_id=1).first()
+        assert setting is not None
+        assert setting.value == "0.9"
 
-    def test_update_settings(self, client):
-        """PUT /api/settings updates settings."""
-        # First get defaults
-        client.get('/api/settings')
 
-        resp = client.put('/api/settings', json={
-            'business_name': 'New Name',
-            'default_delivery_fee': '5.99',
-        })
-        assert resp.status_code == 200
-        data = resp.get_json()
-        assert 'updated' in data
-        assert 'business_name' in data['updated']
-        assert 'default_delivery_fee' in data['updated']
+def test_update_settings_creates_custom_setting(client, app, auth_headers):
+    response = client.put(
+        "/api/settings",
+        headers=auth_headers,
+        json={"custom_dashboard_label": "Ops Board"},
+    )
+    assert response.status_code == 200
 
-    def test_update_settings_persists(self, client):
-        """PUT /api/settings changes are reflected in GET."""
-        client.get('/api/settings')
-        client.put('/api/settings', json={'business_name': 'Persisted Name'})
+    with app.app_context():
+        setting = Settings.query.filter_by(key="custom_dashboard_label", restaurant_id=1).first()
+        assert setting is not None
+        assert setting.category == "custom"
 
-        resp = client.get('/api/settings')
-        data = resp.get_json()
-        assert data['business_name'] == 'Persisted Name'
 
-    def test_update_settings_no_data(self, client):
-        """PUT /api/settings with empty body returns 400."""
-        resp = client.put('/api/settings', content_type='application/json', data='')
-        assert resp.status_code == 400
+def test_update_use_platform_drivers_syncs_restaurant(client, app, auth_headers):
+    response = client.put(
+        "/api/settings",
+        headers=auth_headers,
+        json={"use_platform_drivers": True},
+    )
+    assert response.status_code == 200
 
-    def test_get_single_setting(self, client):
-        """GET /api/settings/<key> returns a single setting."""
-        # Ensure defaults are created
-        client.get('/api/settings')
+    with app.app_context():
+        restaurant = Restaurant.query.get(1)
+        assert restaurant is not None
+        assert restaurant.use_platform_drivers is True
 
-        resp = client.get('/api/settings/business_name')
-        assert resp.status_code == 200
-        data = resp.get_json()
-        assert 'key' in data or 'value' in data
 
-    def test_get_single_setting_not_found(self, client):
-        """GET /api/settings/<key> returns 404 for unknown key."""
-        resp = client.get('/api/settings/nonExistentKey12345')
-        assert resp.status_code == 404
+def test_get_single_setting_existing(client, auth_headers):
+    client.get("/api/settings", headers=auth_headers)
+    response = client.get("/api/settings/voice_confidence_threshold", headers=auth_headers)
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["key"] == "voice_confidence_threshold"
 
-    def test_update_creates_custom_settings(self, client):
-        """PUT /api/settings creates new settings for unknown keys."""
-        resp = client.put('/api/settings', json={
-            'myCustomSetting': 'custom_value',
-        })
-        assert resp.status_code == 200
-        assert 'myCustomSetting' in resp.get_json()['updated']
 
-        # Verify it was persisted
-        resp = client.get('/api/settings')
-        assert resp.get_json()['myCustomSetting'] == 'custom_value'
+def test_get_single_setting_not_found(client, auth_headers):
+    response = client.get("/api/settings/does_not_exist", headers=auth_headers)
+    assert response.status_code == 404

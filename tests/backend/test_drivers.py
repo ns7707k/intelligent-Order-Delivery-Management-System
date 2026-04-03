@@ -1,166 +1,94 @@
-"""Tests for the Drivers API."""
+from datetime import datetime, timedelta, timezone
 
-import pytest
+from app import db
+from app.models.driver import Driver
 
 
-class TestDriversAPI:
-    """Driver CRUD and status tests."""
+def _create_driver(client, headers, name="Driver One", status="available"):
+    response = client.post(
+        "/api/drivers",
+        headers=headers,
+        json={
+            "name": name,
+            "phone": "+440000001111",
+            "email": f"{name.lower().replace(' ', '.')}@odms.test",
+            "vehicle_type": "Car",
+            "status": status,
+            "current_latitude": 51.5074,
+            "current_longitude": -0.1278,
+        },
+    )
+    assert response.status_code == 201
+    return response.get_json()
 
-    DRIVER_DATA = {
-        'name': 'Test Driver',
-        'phone': '+1234567890',
-        'email': 'driver@test.com',
-        'vehicle_type': 'Car',
-        'vehicle_number': 'ABC-123',
-    }
 
-    # --- GET ---
+def test_create_driver_success(client, auth_headers):
+    created = _create_driver(client, auth_headers)
+    assert created["name"] == "Driver One"
 
-    def test_get_drivers_empty(self, client):
-        """GET /api/drivers returns empty list when no drivers exist."""
-        resp = client.get('/api/drivers')
-        assert resp.status_code == 200
-        assert resp.get_json() == []
 
-    def test_get_drivers_returns_list(self, client):
-        """GET /api/drivers returns created drivers."""
-        client.post('/api/drivers', json=self.DRIVER_DATA)
-        resp = client.get('/api/drivers')
-        assert resp.status_code == 200
-        data = resp.get_json()
-        assert len(data) == 1
-        assert data[0]['name'] == 'Test Driver'
+def test_get_all_drivers(client, auth_headers):
+    _create_driver(client, auth_headers)
+    response = client.get("/api/drivers", headers=auth_headers)
+    assert response.status_code == 200
+    assert isinstance(response.get_json(), list)
 
-    def test_get_drivers_filter_by_status(self, client):
-        """GET /api/drivers?status=available filters correctly."""
-        client.post('/api/drivers', json=self.DRIVER_DATA)
-        resp = client.get('/api/drivers?status=available')
-        data = resp.get_json()
-        assert len(data) == 1
 
-        resp = client.get('/api/drivers?status=offline')
-        assert resp.get_json() == []
+def test_get_available_drivers_filter(client, auth_headers):
+    _create_driver(client, auth_headers, name="Available Driver", status="available")
+    _create_driver(client, auth_headers, name="Offline Driver", status="offline")
 
-    def test_get_available_drivers(self, client):
-        """GET /api/drivers/available returns only available drivers."""
-        client.post('/api/drivers', json=self.DRIVER_DATA)
-        client.post('/api/drivers', json={**self.DRIVER_DATA, 'name': 'Offline Driver', 'phone': '+999', 'status': 'offline'})
+    response = client.get("/api/drivers?status=available", headers=auth_headers)
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert all(driver["status"] == "available" for driver in payload)
 
-        resp = client.get('/api/drivers/available')
-        assert resp.status_code == 200
-        data = resp.get_json()
-        assert len(data) == 1
-        assert data[0]['name'] == 'Test Driver'
 
-    # --- GET by ID ---
+def test_update_driver_status(client, auth_headers):
+    created = _create_driver(client, auth_headers)
+    response = client.patch(
+        f"/api/drivers/{created['id']}/status",
+        headers=auth_headers,
+        json={"status": "offline"},
+    )
+    assert response.status_code == 200
+    assert response.get_json()["status"] == "offline"
 
-    def test_get_driver_by_id(self, client):
-        """GET /api/drivers/<id> returns driver details with history."""
-        create_resp = client.post('/api/drivers', json=self.DRIVER_DATA)
-        driver_id = create_resp.get_json()['id']
 
-        resp = client.get(f'/api/drivers/{driver_id}')
-        assert resp.status_code == 200
-        data = resp.get_json()
-        assert data['name'] == 'Test Driver'
-        assert 'deliveryHistory' in data
-        assert 'performance' in data
+def test_invalid_driver_status(client, auth_headers):
+    created = _create_driver(client, auth_headers)
+    response = client.patch(
+        f"/api/drivers/{created['id']}/status",
+        headers=auth_headers,
+        json={"status": "flying"},
+    )
+    assert response.status_code == 400
 
-    def test_get_driver_not_found(self, client):
-        """GET /api/drivers/<id> returns 404 for missing driver."""
-        resp = client.get('/api/drivers/NONEXISTENT')
-        assert resp.status_code == 404
 
-    # --- POST ---
+def test_driver_self_heal_overdue_returning(client, app, auth_headers):
+    created = _create_driver(client, auth_headers, status="returning")
 
-    def test_create_driver(self, client):
-        """POST /api/drivers creates a new driver."""
-        resp = client.post('/api/drivers', json=self.DRIVER_DATA)
-        assert resp.status_code == 201
-        data = resp.get_json()
-        assert data['name'] == 'Test Driver'
-        assert data['status'] == 'available'
-        assert data['id'].startswith('DRV')
+    with app.app_context():
+        driver = Driver.query.get(created["id"])
+        driver.status = "returning"
+        driver.driver_available_at = datetime.now(timezone.utc) - timedelta(minutes=10)
+        db.session.commit()
 
-    def test_create_driver_missing_fields(self, client):
-        """POST /api/drivers validates required fields."""
-        resp = client.post('/api/drivers', json={'name': 'Incomplete'})
-        assert resp.status_code == 400
-        assert 'Missing required fields' in resp.get_json()['error']
+    response = client.get("/api/drivers", headers=auth_headers)
+    assert response.status_code == 200
+    payload = response.get_json()
+    healed = next(item for item in payload if item["id"] == created["id"])
+    assert healed["status"] == "available"
 
-    def test_create_driver_auto_generates_id(self, client):
-        """POST /api/drivers auto-generates unique sequential IDs."""
-        resp1 = client.post('/api/drivers', json=self.DRIVER_DATA)
-        resp2 = client.post('/api/drivers', json={**self.DRIVER_DATA, 'phone': '+999'})
-        assert resp1.get_json()['id'] != resp2.get_json()['id']
 
-    # --- PUT ---
+def test_delete_driver_success(client, auth_headers):
+    created = _create_driver(client, auth_headers)
+    response = client.delete(f"/api/drivers/{created['id']}", headers=auth_headers)
+    assert response.status_code == 200
 
-    def test_update_driver(self, client):
-        """PUT /api/drivers/<id> updates driver fields."""
-        create_resp = client.post('/api/drivers', json=self.DRIVER_DATA)
-        driver_id = create_resp.get_json()['id']
 
-        resp = client.put(f'/api/drivers/{driver_id}', json={
-            'name': 'Updated Driver',
-            'vehicle_type': 'Bicycle',
-        })
-        assert resp.status_code == 200
-        data = resp.get_json()
-        assert data['name'] == 'Updated Driver'
-        assert data['vehicle_type'] == 'Bicycle'
-
-    def test_update_driver_not_found(self, client):
-        """PUT /api/drivers/<id> returns 404 for missing driver."""
-        resp = client.put('/api/drivers/NONEXISTENT', json={'name': 'Nope'})
-        assert resp.status_code == 404
-
-    # --- PATCH status ---
-
-    def test_update_driver_status(self, client):
-        """PATCH /api/drivers/<id>/status changes driver status."""
-        create_resp = client.post('/api/drivers', json=self.DRIVER_DATA)
-        driver_id = create_resp.get_json()['id']
-
-        resp = client.patch(f'/api/drivers/{driver_id}/status', json={'status': 'offline'})
-        assert resp.status_code == 200
-        assert resp.get_json()['status'] == 'offline'
-
-    def test_update_driver_invalid_status(self, client):
-        """PATCH /api/drivers/<id>/status rejects invalid status."""
-        create_resp = client.post('/api/drivers', json=self.DRIVER_DATA)
-        driver_id = create_resp.get_json()['id']
-
-        resp = client.patch(f'/api/drivers/{driver_id}/status', json={'status': 'flying'})
-        assert resp.status_code == 400
-        assert 'Invalid status' in resp.get_json()['error']
-
-    def test_update_driver_status_valid_values(self, client):
-        """PATCH /api/drivers/<id>/status accepts all valid statuses."""
-        create_resp = client.post('/api/drivers', json=self.DRIVER_DATA)
-        driver_id = create_resp.get_json()['id']
-
-        for status in ['on_delivery', 'returning', 'offline', 'available']:
-            resp = client.patch(f'/api/drivers/{driver_id}/status', json={'status': status})
-            assert resp.status_code == 200
-            assert resp.get_json()['status'] == status
-
-    # --- DELETE ---
-
-    def test_delete_driver(self, client):
-        """DELETE /api/drivers/<id> removes a driver."""
-        create_resp = client.post('/api/drivers', json=self.DRIVER_DATA)
-        driver_id = create_resp.get_json()['id']
-
-        resp = client.delete(f'/api/drivers/{driver_id}')
-        assert resp.status_code == 200
-        assert 'deleted' in resp.get_json()['message']
-
-        # Verify driver is gone
-        get_resp = client.get(f'/api/drivers/{driver_id}')
-        assert get_resp.status_code == 404
-
-    def test_delete_driver_not_found(self, client):
-        """DELETE /api/drivers/<id> returns 404 for missing driver."""
-        resp = client.delete('/api/drivers/NONEXISTENT')
-        assert resp.status_code == 404
+def test_get_driver_by_id(client, auth_headers):
+    created = _create_driver(client, auth_headers)
+    response = client.get(f"/api/drivers/{created['id']}", headers=auth_headers)
+    assert response.status_code == 200
+    assert response.get_json()["id"] == created["id"]

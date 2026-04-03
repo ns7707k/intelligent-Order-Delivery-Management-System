@@ -1,96 +1,103 @@
-"""
-Pytest fixtures for backend tests.
-Creates a test Flask app with an in-memory SQLite database.
-"""
-
 import os
-import sys
+import uuid
+
 import pytest
 
-# Add backend to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'backend'))
+from app import create_app, db
+from app.models.affiliation_request import AffiliationRequest
+from app.models.driver import Driver
+from app.models.order import Order, OrderItem
+from app.models.restaurant import Restaurant
+from app.models.route import Route, RouteStop
+from app.models.settings import Settings
+from app.models.user import User
 
-from app import create_app, db as _db
+
+def _unique_email(prefix):
+    return f"{prefix}.{uuid.uuid4().hex[:8]}@odms.test"
 
 
-@pytest.fixture(scope='session')
+@pytest.fixture(scope="session")
 def app():
-    """Create a test Flask application."""
-    os.environ['TEST_DATABASE_URL'] = 'sqlite:///:memory:'
-    application = create_app('testing')
-    application.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///:memory:'
-    application.config['TESTING'] = True
+    # Use development mode so auth middleware is active, but isolate to test DB.
+    os.environ["DATABASE_URL"] = "sqlite:///odms_test_pytest.db"
+    os.environ.pop("TESTING", None)
+
+    application = create_app("development")
 
     with application.app_context():
-        _db.create_all()
+        db.drop_all()
+        db.create_all()
 
     yield application
 
     with application.app_context():
-        _db.drop_all()
+        db.session.remove()
+        db.drop_all()
 
 
-@pytest.fixture(scope='function')
-def db(app):
-    """Provide a clean database for each test."""
+@pytest.fixture(autouse=True)
+def clean_db(app):
     with app.app_context():
-        _db.create_all()
-        yield _db
-        _db.session.rollback()
-        _db.drop_all()
+        db.session.query(RouteStop).delete()
+        db.session.query(Route).delete()
+        db.session.query(OrderItem).delete()
+        db.session.query(Order).delete()
+        db.session.query(AffiliationRequest).delete()
+        db.session.query(User).delete()
+        db.session.query(Driver).delete()
+        db.session.query(Settings).delete()
+        db.session.query(Restaurant).delete()
+        db.session.commit()
 
 
-@pytest.fixture(scope='function')
-def client(app, db):
-    """Provide a test client."""
+@pytest.fixture()
+def client(app):
     return app.test_client()
 
 
-@pytest.fixture
-def sample_restaurant(client):
-    """Create a sample restaurant."""
-    data = {
-        'name': 'Test Restaurant',
-        'phone': '+1234567890',
-        'email': 'test@restaurant.com',
-        'address': '123 Test St',
-        'latitude': 51.505,
-        'longitude': -0.09,
-        'max_delivery_radius_km': 15.0,
-        'avg_speed_kmh': 30.0,
-    }
-    response = client.post('/api/restaurant', json=data)
-    return response.get_json()
+@pytest.fixture()
+def register_restaurant(client):
+    def _register(email=None, password="TestPass123!", name="Test Restaurant"):
+        payload = {
+            "email": email or _unique_email("admin"),
+            "password": password,
+            "restaurant_name": name,
+            "phone": "+440000000001",
+            "address": "10 Downing Street, London",
+            # Provide explicit coordinates to avoid external geocoder dependency in tests.
+            "latitude": 51.5074,
+            "longitude": -0.1278,
+        }
+        response = client.post("/api/auth/register/restaurant", json=payload)
+        return response, payload
+
+    return _register
 
 
-@pytest.fixture
-def sample_driver(client, sample_restaurant):
-    """Create a sample driver."""
-    data = {
-        'name': 'Test Driver',
-        'phone': '+1234567890',
-        'email': 'driver@test.com',
-        'vehicle_type': 'Car',
-        'vehicle_number': 'TEST-001',
-        'status': 'available',
-    }
-    response = client.post('/api/drivers', json=data)
-    return response.get_json()
+@pytest.fixture()
+def auth_headers(client, register_restaurant):
+    response, payload = register_restaurant()
+    assert response.status_code == 201
+
+    login_response = client.post(
+        "/api/auth/login",
+        json={"email": payload["email"], "password": payload["password"]},
+    )
+    assert login_response.status_code == 200
+    token = login_response.get_json()["token"]
+    return {"Authorization": f"Bearer {token}"}
 
 
-@pytest.fixture
-def sample_order(client):
-    """Create a sample order."""
-    data = {
-        'customer_name': 'John Doe',
-        'customer_phone': '+1234567890',
-        'delivery_address': '456 Delivery St',
-        'latitude': 51.510,
-        'longitude': -0.08,
-        'items': [
-            {'name': 'Pizza', 'quantity': 2, 'price': 12.99},
-            {'name': 'Salad', 'quantity': 1, 'price': 8.99},
-        ],
-    }
-    response = client.post('/api/orders', json=data)
-    return response.get_json()
+@pytest.fixture()
+def second_restaurant_headers(client, register_restaurant):
+    response, payload = register_restaurant(name="Second Restaurant")
+    assert response.status_code == 201
+
+    login_response = client.post(
+        "/api/auth/login",
+        json={"email": payload["email"], "password": payload["password"]},
+    )
+    assert login_response.status_code == 200
+    token = login_response.get_json()["token"]
+    return {"Authorization": f"Bearer {token}"}
