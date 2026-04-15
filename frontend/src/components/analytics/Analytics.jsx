@@ -15,6 +15,14 @@ import {
   CircularProgress,
   Alert,
 } from '@mui/material';
+import {
+  AttachMoney as AttachMoneyIcon,
+  Restaurant as RestaurantIcon,
+  TrendingUp as TrendingUpIcon,
+  AccessTime as AccessTimeIcon,
+  LocalShipping as LocalShippingIcon,
+  Star as StarIcon,
+} from '@mui/icons-material';
 import { TrendingUp } from 'lucide-react';
 import { getAnalyticsSummary } from '../../services/api';
 
