@@ -9,8 +9,9 @@ Endpoints:
   DELETE /api/orders/<id>     - Cancel/delete an order
 """
 
+import os
 import threading
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, current_app
 from app import db
 from app.models.order import Order, OrderItem
 from app.models.driver import Driver
@@ -22,8 +23,20 @@ from app.services.driver_location_simulator import stop_driver_location_simulati
 from app.utils.auth import get_current_restaurant_id, require_role
 from app.utils.geocoder import get_geocoding_details
 from datetime import datetime, timezone, timedelta
+from sqlalchemy.orm import selectinload
 
 orders_bp = Blueprint('orders', __name__)
+
+try:
+    _ORDER_MAINTENANCE_INTERVAL_SECONDS = max(
+        5,
+        int(float(os.environ.get('ORDER_MAINTENANCE_INTERVAL_SECONDS', '15'))),
+    )
+except (TypeError, ValueError):
+    _ORDER_MAINTENANCE_INTERVAL_SECONDS = 15
+
+_ORDER_MAINTENANCE_LAST_RUN = {}
+_ORDER_MAINTENANCE_LOCK = threading.Lock()
 
 
 def _to_float(value, fallback=0.0):
@@ -175,19 +188,49 @@ def _clear_stale_ready_assignments(restaurant_id):
     db.session.commit()
 
 
+def _run_periodic_order_maintenance(restaurant_id, source='orders_get', order_id=None):
+    """Run expensive order-maintenance tasks at a bounded cadence per restaurant."""
+    _apply_pending_order_timeouts(restaurant_id)
+    _clear_stale_ready_assignments(restaurant_id)
+
+    now = datetime.now(timezone.utc)
+
+    should_run = False
+    with _ORDER_MAINTENANCE_LOCK:
+        last_run = _ORDER_MAINTENANCE_LAST_RUN.get(restaurant_id)
+        if (not last_run) or ((now - last_run).total_seconds() >= _ORDER_MAINTENANCE_INTERVAL_SECONDS):
+            _ORDER_MAINTENANCE_LAST_RUN[restaurant_id] = now
+            should_run = True
+
+    if not should_run:
+        return False
+
+    try:
+        apply_due_lifecycle_transitions(order_id=order_id, source=source)
+    except Exception as exc:
+        with _ORDER_MAINTENANCE_LOCK:
+            _ORDER_MAINTENANCE_LAST_RUN.pop(restaurant_id, None)
+        current_app.logger.warning(f'Order maintenance skipped due to error: {exc}')
+
+    return True
+
+
 @orders_bp.route('', methods=['GET'])
 @require_role('restaurant_admin')
 def get_orders():
     """Get all orders, optionally filtered by status."""
     restaurant_id = get_current_restaurant_id()
-    _apply_pending_order_timeouts(restaurant_id)
-    _clear_stale_ready_assignments(restaurant_id)
-    apply_due_lifecycle_transitions(source='orders_get')
+    _run_periodic_order_maintenance(restaurant_id, source='orders_get')
     status = request.args.get('status')
     page = request.args.get('page', 1, type=int)
     per_page = request.args.get('per_page', 50, type=int)
 
-    query = Order.query.filter(Order.restaurant_id == restaurant_id).order_by(Order.created_at.desc())
+    query = Order.query.options(
+        selectinload(Order.items),
+        selectinload(Order.driver),
+    ).filter(
+        Order.restaurant_id == restaurant_id,
+    ).order_by(Order.created_at.desc())
 
     if status and status != 'all':
         query = query.filter(Order.status == status)
@@ -201,10 +244,11 @@ def get_orders():
 def get_order(order_id):
     """Get a single order by ID."""
     restaurant_id = get_current_restaurant_id()
-    _apply_pending_order_timeouts(restaurant_id)
-    _clear_stale_ready_assignments(restaurant_id)
-    apply_due_lifecycle_transitions(order_id=order_id, source='order_get')
-    order = Order.query.filter(
+    _run_periodic_order_maintenance(restaurant_id, source='order_get', order_id=order_id)
+    order = Order.query.options(
+        selectinload(Order.items),
+        selectinload(Order.driver),
+    ).filter(
         Order.id == order_id,
         Order.restaurant_id == restaurant_id,
     ).first_or_404(description=f'Order {order_id} not found')

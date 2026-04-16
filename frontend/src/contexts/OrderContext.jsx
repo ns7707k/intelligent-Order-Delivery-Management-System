@@ -31,6 +31,24 @@ export const OrderProvider = ({ children }) => {
   const [refreshIntervalMs, setRefreshIntervalMs] = useState(DEFAULT_REFRESH_INTERVAL_MS);
 
   // Fetch orders on mount
+  const fetchOrders = async ({ silent = false } = {}) => {
+    try {
+      if (!silent) {
+        setLoading(true);
+      }
+      const data = await getOrders();
+      setOrders(data);
+      setError(null);
+    } catch (err) {
+      console.error('Error fetching orders:', err);
+      setError('Failed to fetch orders');
+    } finally {
+      if (!silent) {
+        setLoading(false);
+      }
+    }
+  };
+
   useEffect(() => {
     if (!user || user.role !== 'restaurant_admin') {
       setOrders([]);
@@ -77,25 +95,13 @@ export const OrderProvider = ({ children }) => {
     fetchOrders();
 
     // Set up polling for real-time updates using the configured interval.
-    const interval = setInterval(fetchOrders, refreshIntervalMs);
+    const interval = setInterval(() => {
+      fetchOrders({ silent: true });
+    }, refreshIntervalMs);
     loadRefreshInterval();
     
     return () => clearInterval(interval);
   }, [user, refreshIntervalMs]);
-
-  const fetchOrders = async () => {
-    try {
-      setLoading(true);
-      const data = await getOrders();
-      setOrders(data);
-      setError(null);
-    } catch (err) {
-      console.error('Error fetching orders:', err);
-      setError('Failed to fetch orders');
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const updateOrder = async (orderId, status) => {
     try {
@@ -106,7 +112,7 @@ export const OrderProvider = ({ children }) => {
         )
       );
       // Force a fresh pull right after mutation so assignment/status changes appear instantly.
-      await fetchOrders();
+      await fetchOrders({ silent: true });
       return updatedOrder;
     } catch (err) {
       console.error('Error updating order:', err);

@@ -44,7 +44,7 @@ def main():
         item = OrderItem(order_id=o.id, name='Pizza', quantity=2, price=12.99)
         db.session.add(item)
         db.session.commit()
-        print(f"[OK] Order created: #{o.id} with {o.items.count()} item(s)")
+        print(f"[OK] Order created: #{o.id} with {len(o.items)} item(s)")
 
         # Test API endpoints with test client
         client = app.test_client()

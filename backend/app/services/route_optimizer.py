@@ -25,14 +25,14 @@ from flask import current_app
 from app.services.driver_location_simulator import start_driver_location_simulation
 from app.services.order_lifecycle import schedule_order_lifecycle
 
+log = logging.getLogger(__name__)
+
 try:
     from ortools.constraint_solver import routing_enums_pb2, pywrapcp
     ORTOOLS_AVAILABLE = True
 except ImportError:
     ORTOOLS_AVAILABLE = False
-    print("WARNING: Google OR-Tools not installed. Route optimization will use fallback.")
-
-log = logging.getLogger(__name__)
+    log.warning("Google OR-Tools not installed. Route optimization will use fallback.")
 
 # ── Fallback defaults (used when restaurant is not configured) ──
 FALLBACK_DEPOT = (51.505, -0.09)          # Central London
@@ -135,28 +135,28 @@ def get_eligible_drivers(restaurant_id):
     from app.models.restaurant import Restaurant
     from app.models.settings import Settings, DEFAULT_SETTINGS
 
-    print(f"[ASSIGN] ========== get_eligible_drivers(restaurant_id={restaurant_id}) ==========")
+    log.debug(f"[ASSIGN] ========== get_eligible_drivers(restaurant_id={restaurant_id}) ==========")
     
     # Check restaurant object
     restaurant = Restaurant.query.get(restaurant_id) if restaurant_id else None
     use_platform = bool(restaurant.use_platform_drivers) if restaurant else False
-    print(f"[ASSIGN] Restaurant lookup: restaurant={restaurant.name if restaurant else None}, use_platform_drivers on restaurant={use_platform}")
+    log.debug(f"[ASSIGN] Restaurant lookup: restaurant={restaurant.name if restaurant else None}, use_platform_drivers on restaurant={use_platform}")
 
     # Allow settings toggle to control behavior before full restaurant setup flows
     setting = Settings.get_for_restaurant('use_platform_drivers', restaurant_id)
     if setting is not None:
         typed_value = setting.get_typed_value()
         use_platform = typed_value is True
-        print(f"[ASSIGN] Settings override: use_platform_drivers setting found, value={setting.value}, type={setting.value_type}, get_typed_value()={typed_value}, use_platform now={use_platform}")
+        log.debug(f"[ASSIGN] Settings override: use_platform_drivers setting found, value={setting.value}, type={setting.value_type}, get_typed_value()={typed_value}, use_platform now={use_platform}")
     else:
-        print(f"[ASSIGN] Settings override: no use_platform_drivers setting found")
+        log.debug("[ASSIGN] Settings override: no use_platform_drivers setting found")
 
     # Get all available or returning drivers (returning drivers are eligible for assignment
     # if they represent the fastest way to get food to the customer)
     all_available = Driver.query.filter(Driver.status.in_(['available', 'returning'])).all()
-    print(f"[ASSIGN] Total drivers with status=available: {len(all_available)}")
+    log.debug(f"[ASSIGN] Total drivers with status=available: {len(all_available)}")
     for d in all_available:
-        print(f"[ASSIGN]   - {d.id}: owner_type={d.owner_type}, restaurant_id={d.restaurant_id}, status={d.status}, lat={d.current_latitude}, lng={d.current_longitude}")
+        log.debug(f"[ASSIGN]   - {d.id}: owner_type={d.owner_type}, restaurant_id={d.restaurant_id}, status={d.status}, lat={d.current_latitude}, lng={d.current_longitude}")
 
     # Build eligible list manually to debug
     eligible = []
@@ -180,10 +180,10 @@ def get_eligible_drivers(restaurant_id):
             if driver.owner_type == 'platform' and not use_platform:
                 no_match.append("platform but use_platform=False")
             match_reason = f"EXCLUDED: {', '.join(no_match)}"
-        print(f"[ASSIGN]   {'OK' if driver in eligible else 'X '} {driver.id}: {match_reason}")
+        log.debug(f"[ASSIGN]   {'OK' if driver in eligible else 'X '} {driver.id}: {match_reason}")
 
-    print(f"[ASSIGN] Eligible drivers count: {len(eligible)}")
-    print(f"[ASSIGN] Eligible drivers: {[d.id for d in eligible]}")
+    log.debug(f"[ASSIGN] Eligible drivers count: {len(eligible)}")
+    log.debug(f"[ASSIGN] Eligible drivers: {[d.id for d in eligible]}")
 
     def _to_positive_int(value, fallback=1):
         try:
@@ -208,7 +208,7 @@ def get_eligible_drivers(restaurant_id):
     ))
 
     if len(eligible) > max_active_limit:
-        print(f"[ASSIGN] Applying max_active_drivers limit={max_active_limit} (before={len(eligible)})")
+        log.debug(f"[ASSIGN] Applying max_active_drivers limit={max_active_limit} (before={len(eligible)})")
         eligible = eligible[:max_active_limit]
 
     return eligible

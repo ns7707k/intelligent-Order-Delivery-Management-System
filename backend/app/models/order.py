@@ -57,7 +57,7 @@ class Order(db.Model):
     driver_available_at = db.Column(db.DateTime(timezone=True), nullable=True)
 
     # Relationships
-    items = db.relationship('OrderItem', backref='order', lazy='dynamic',
+    items = db.relationship('OrderItem', backref='order', lazy='selectin',
                             cascade='all, delete-orphan')
     driver = db.relationship('Driver', foreign_keys=[driver_id], backref='assigned_orders', lazy='select')
 
@@ -66,6 +66,8 @@ class Order(db.Model):
         pickup_eta_at = None
         if self.assigned_at and self.driver_pickup_eta is not None:
             pickup_eta_at = self.assigned_at + timedelta(minutes=float(self.driver_pickup_eta))
+
+        items_payload = [item.to_dict() for item in self.items]
 
         display_driver = self.status in ('assigned', 'out_for_delivery', 'delivered')
         driver_status = self.driver.status if (self.driver and display_driver) else None
@@ -107,8 +109,8 @@ class Order(db.Model):
             'estimated_round_trip_minutes': self.estimated_round_trip_minutes,
             'driver_available_again_minutes': self.driver_available_again_minutes,
             'driver_available_at': self.driver_available_at.isoformat() if self.driver_available_at else None,
-            'items': [item.to_dict() for item in self.items],
-            'items_count': self.items.count(),
+            'items': items_payload,
+            'items_count': len(items_payload),
         }
 
     def __repr__(self):
