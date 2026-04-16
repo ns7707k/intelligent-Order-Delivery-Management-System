@@ -50,7 +50,8 @@ export const rejectAffiliationRequest = async (requestId) => {
 };
 import axios from 'axios';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
+const RAW_API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
+const API_BASE_URL = RAW_API_BASE_URL.replace(/\/+$/, '');
 
 const api = axios.create({
   baseURL: `${API_BASE_URL}/api`,
@@ -271,7 +272,8 @@ export const updateSettings = async (settings) => {
 
 export const geocodeAddress = async (address) => {
   try {
-    const response = await api.get(`/geocode?address=${encodeURIComponent(address)}`);
+    const cacheBuster = Date.now();
+    const response = await api.get(`/geocode?address=${encodeURIComponent(address)}&_=${cacheBuster}`);
     return response.data;
   } catch (error) {
     console.error('API Error - Geocode:', error);
