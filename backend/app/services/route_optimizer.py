@@ -43,10 +43,34 @@ SOLVER_TIME_LIMIT_SECONDS = 5
 DEFAULT_AVG_SPEED_KMH = 30.0  # Average driver speed for time estimates
 
 
+def _resolve_fallback_depot_coordinates():
+    """Resolve fallback depot from configured business address when possible."""
+    from app.models.settings import Settings
+    from app.utils.geocoder import geocode_address
+
+    business_address = Settings.get_typed_for_restaurant(
+        'business_address',
+        None,
+        fallback=None,
+        rehome_legacy=False,
+    )
+
+    if isinstance(business_address, str) and business_address.strip():
+        try:
+            resolved_lat, resolved_lng = geocode_address(business_address.strip())
+            if resolved_lat is not None and resolved_lng is not None:
+                return float(resolved_lat), float(resolved_lng)
+        except Exception as exc:
+            log.warning(f"Failed to geocode business_address fallback depot: {exc}")
+
+    return FALLBACK_DEPOT
+
+
 def _get_restaurant_depot():
     """
     Get the restaurant location from DB to use as VRP depot.
-    Falls back to FALLBACK_DEPOT if restaurant is not registered.
+    Falls back to configured business address geocode (or final static fallback)
+    if restaurant coordinates are unavailable.
     Also returns avg_speed_kmh and max_delivery_radius_km from restaurant config.
     """
     from app.models.restaurant import Restaurant
@@ -75,10 +99,9 @@ def _get_restaurant_depot():
                 lat = resolved_lat
                 lng = resolved_lng
 
-        # Final guardrail: keep system operational with fallback depot.
+        # Final guardrail: keep system operational with a fallback depot.
         if lat is None or lng is None:
-            lat = FALLBACK_DEPOT[0]
-            lng = FALLBACK_DEPOT[1]
+            lat, lng = _resolve_fallback_depot_coordinates()
 
         return {
             'restaurant_id': restaurant.id,
@@ -88,10 +111,11 @@ def _get_restaurant_depot():
             'max_radius_km': restaurant.max_delivery_radius_km or MAX_DELIVERY_RADIUS_KM,
             'use_platform_drivers': use_platform,
         }
+    fallback_lat, fallback_lng = _resolve_fallback_depot_coordinates()
     return {
         'restaurant_id': None,
-        'lat': FALLBACK_DEPOT[0],
-        'lng': FALLBACK_DEPOT[1],
+        'lat': fallback_lat,
+        'lng': fallback_lng,
         'avg_speed_kmh': DEFAULT_AVG_SPEED_KMH,
         'max_radius_km': MAX_DELIVERY_RADIUS_KM,
         'use_platform_drivers': False,
