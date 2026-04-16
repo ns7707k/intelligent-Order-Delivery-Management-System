@@ -16,7 +16,6 @@ import { getHeatmapData, getRestaurant, getSettings } from '../../services/api';
 import HeatmapView from './HeatmapView';
 import OrderStats from './OrderStats';
 import {
-  DEFAULT_MAP_CENTER,
   mergeRuntimeSettingsIntoCache,
   readCachedRuntimeSettings,
 } from '../../utils/runtimeSettings';
@@ -132,8 +131,7 @@ const ManagerDashboard = () => {
     } catch (err) {
       console.error('Error fetching heatmap data:', err);
       setError('Failed to load heatmap data');
-      // Fallback to mock data for development
-      setHeatmapData(generateMockHeatmapData());
+      setHeatmapData(generateFallbackHeatmapData(viewMode));
     } finally {
       setLoading(false);
     }
@@ -145,33 +143,21 @@ const ManagerDashboard = () => {
     }
   };
 
-  // Generate mock heatmap data for development
-  const generateMockHeatmapData = () => {
-    if (viewMode === 'live') {
-      // Convert current orders to heatmap points
-      return orders
-        .filter(order => order.latitude && order.longitude)
-        .map(order => ({
-          lat: order.latitude,
-          lng: order.longitude,
-          intensity: 1,
-        }));
-    } else {
-      // Generate predictive hotspots (mock data)
-      const hotspots = [];
-      const centerLat = restaurantLocation?.[0] ?? DEFAULT_MAP_CENTER[0];
-      const centerLng = restaurantLocation?.[1] ?? DEFAULT_MAP_CENTER[1];
-      
-      for (let i = 0; i < 50; i++) {
-        hotspots.push({
-          lat: centerLat + (Math.random() - 0.5) * 0.1,
-          lng: centerLng + (Math.random() - 0.5) * 0.1,
-          intensity: Math.random(),
-        });
-      }
-      return hotspots;
-    }
-  };
+  // Use real order coordinates as fallback when predictive analytics is unavailable.
+  const generateFallbackHeatmapData = (mode) => (
+    orders
+      .filter((order) => order.latitude && order.longitude && order.status !== 'cancelled')
+      .map((order) => ({
+        lat: order.latitude,
+        lng: order.longitude,
+        intensity: mode === 'predictive'
+          ? (order.status === 'delivered' ? 0.45 : order.status === 'out_for_delivery' ? 0.75 : 0.6)
+          : (order.status === 'delivered' ? 0.55 : order.status === 'out_for_delivery' ? 0.85 : 1),
+        order_id: order.id,
+        status: order.status,
+        address: order.delivery_address,
+      }))
+  );
 
   return (
     <Box sx={{ 

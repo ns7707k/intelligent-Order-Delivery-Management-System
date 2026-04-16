@@ -100,6 +100,15 @@ def get_summary():
         Order.status == 'cancelled'
     ).count()
 
+    avg_delivery_time = db.session.query(
+        func.coalesce(func.avg(Order.estimated_delivery_minutes), 0)
+    ).filter(
+        Order.restaurant_id == restaurant_id,
+        Order.created_at >= start_date,
+        Order.status == 'delivered',
+        Order.estimated_delivery_minutes.isnot(None),
+    ).scalar()
+
     # Previous period for growth calculation
     period_length = (datetime.now(timezone.utc) - start_date).days or 1
     prev_start = start_date - timedelta(days=period_length)
@@ -176,7 +185,7 @@ def get_summary():
             'total': int(revenue_query.total_orders),
             'delivered': delivered_count,
             'cancelled': cancelled_count,
-            'avgDeliveryTime': 28,  # Will be computed from route data
+            'avgDeliveryTime': round(float(avg_delivery_time), 1) if avg_delivery_time else 0,
         },
         'drivers': {
             'active': active_drivers,

@@ -197,11 +197,11 @@ const CreateOrder = () => {
           persistPricingCache(settings);
           setPricingConfigWarning(null);
         } else {
-          setPricingConfigWarning('Unable to read pricing settings. Using fallback defaults (£4.99 and 8%).');
+          setPricingConfigWarning('Unable to read pricing settings. Using fallback pricing defaults.');
         }
       } catch {
         if (active) {
-          setPricingConfigWarning('Unable to load pricing settings. Using fallback defaults (£4.99 and 8%).');
+          setPricingConfigWarning('Unable to load pricing settings. Using fallback pricing defaults.');
         }
       } finally {
         if (active) {

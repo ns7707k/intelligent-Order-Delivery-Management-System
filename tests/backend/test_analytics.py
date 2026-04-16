@@ -17,6 +17,7 @@ def _seed_analytics_data(app):
             tax=2.0,
             delivery_fee=3.0,
             total=25.0,
+            estimated_delivery_minutes=24,
             restaurant_id=1,
             created_at=datetime.now(timezone.utc),
         )
@@ -80,6 +81,7 @@ def test_analytics_summary(client, app, auth_headers):
     assert "revenue" in payload
     assert "orders" in payload
     assert "drivers" in payload
+    assert payload["orders"]["avgDeliveryTime"] == 24.0
 
 
 def test_analytics_orders_breakdown(client, app, auth_headers):

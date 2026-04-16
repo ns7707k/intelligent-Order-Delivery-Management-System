@@ -139,11 +139,26 @@ function DriverDashboard() {
     return DEFAULT_MAP_CENTER;
   }, [driverPoint, pickupPoint, dropoffPoint]);
 
-  const stats = useMemo(() => ({
-    deliveriesToday: driver?.total_deliveries || 0,
-    earningsToday: Number(driver?.earnings_today ?? 0),
-    hoursActive: driver?.status === 'offline' ? '0.0' : '8.0',
-  }), [driver]);
+  const stats = useMemo(() => {
+    const activeSinceCandidates = [
+      driver?.assigned_at,
+      activeOrder?.assigned_at,
+      activeOrder?.created_at,
+    ]
+      .map((value) => (value ? Date.parse(value) : Number.NaN))
+      .filter((value) => Number.isFinite(value));
+
+    const activeSince = activeSinceCandidates.length > 0 ? Math.min(...activeSinceCandidates) : null;
+    const activeHours = driver?.status === 'offline' || activeSince === null
+      ? 0
+      : Math.max(0, (Date.now() - activeSince) / (1000 * 60 * 60));
+
+    return {
+      deliveriesToday: driver?.total_deliveries || 0,
+      earningsToday: Number(driver?.earnings_today ?? 0),
+      hoursActive: activeHours.toFixed(1),
+    };
+  }, [driver, activeOrder]);
 
   // Location dialog state
   const [locationDialogOpen, setLocationDialogOpen] = useState(false);
