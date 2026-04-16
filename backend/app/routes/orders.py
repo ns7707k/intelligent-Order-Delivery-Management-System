@@ -46,6 +46,24 @@ def _to_positive_int(value, fallback=1):
     return parsed if parsed > 0 else int(fallback)
 
 
+def _to_bool(value, fallback=False):
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    if isinstance(value, str):
+        return value.strip().lower() in ('true', '1', 'yes', 'on')
+    return bool(fallback)
+
+
+def _to_aware_utc(dt_value):
+    if not dt_value:
+        return None
+    if dt_value.tzinfo is None:
+        return dt_value.replace(tzinfo=timezone.utc)
+    return dt_value.astimezone(timezone.utc)
+
+
 def _get_order_pricing_settings(restaurant_id):
     default_delivery_fee = _to_non_negative_float(
         Settings.get_typed_for_restaurant(
@@ -69,6 +87,65 @@ def _get_order_pricing_settings(restaurant_id):
         'default_delivery_fee': default_delivery_fee,
         'tax_rate': tax_rate,
     }
+
+
+def _get_order_runtime_settings(restaurant_id):
+    default_auto_assign = _to_bool(DEFAULT_SETTINGS['auto_assign_drivers'][0], fallback=True)
+    default_timeout = _to_positive_int(DEFAULT_SETTINGS['order_timeout_minutes'][0], fallback=30)
+
+    auto_assign_drivers = _to_bool(
+        Settings.get_typed_for_restaurant(
+            'auto_assign_drivers',
+            restaurant_id,
+            fallback=default_auto_assign,
+        ),
+        fallback=default_auto_assign,
+    )
+    order_timeout_minutes = _to_positive_int(
+        Settings.get_typed_for_restaurant(
+            'order_timeout_minutes',
+            restaurant_id,
+            fallback=default_timeout,
+        ),
+        fallback=default_timeout,
+    )
+
+    return {
+        'auto_assign_drivers': auto_assign_drivers,
+        'order_timeout_minutes': order_timeout_minutes,
+    }
+
+
+def _is_pending_order_timed_out(order, timeout_minutes, now=None):
+    if not order or order.status != 'pending' or not order.created_at:
+        return False
+
+    created_at = _to_aware_utc(order.created_at)
+    effective_now = _to_aware_utc(now) or datetime.now(timezone.utc)
+    return created_at <= (effective_now - timedelta(minutes=timeout_minutes))
+
+
+def _apply_pending_order_timeouts(restaurant_id):
+    runtime = _get_order_runtime_settings(restaurant_id)
+    timeout_minutes = runtime['order_timeout_minutes']
+    now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(minutes=timeout_minutes)
+
+    timed_out_orders = Order.query.filter(
+        Order.restaurant_id == restaurant_id,
+        Order.status == 'pending',
+        Order.created_at <= cutoff,
+    ).all()
+
+    if not timed_out_orders:
+        return 0
+
+    for order in timed_out_orders:
+        order.status = 'cancelled'
+        order.updated_at = now
+
+    db.session.commit()
+    return len(timed_out_orders)
 
 
 def _clear_stale_ready_assignments(restaurant_id):
@@ -103,6 +180,7 @@ def _clear_stale_ready_assignments(restaurant_id):
 def get_orders():
     """Get all orders, optionally filtered by status."""
     restaurant_id = get_current_restaurant_id()
+    _apply_pending_order_timeouts(restaurant_id)
     _clear_stale_ready_assignments(restaurant_id)
     apply_due_lifecycle_transitions(source='orders_get')
     status = request.args.get('status')
@@ -123,6 +201,7 @@ def get_orders():
 def get_order(order_id):
     """Get a single order by ID."""
     restaurant_id = get_current_restaurant_id()
+    _apply_pending_order_timeouts(restaurant_id)
     _clear_stale_ready_assignments(restaurant_id)
     apply_due_lifecycle_transitions(order_id=order_id, source='order_get')
     order = Order.query.filter(
@@ -130,6 +209,14 @@ def get_order(order_id):
         Order.restaurant_id == restaurant_id,
     ).first_or_404(description=f'Order {order_id} not found')
     return jsonify(order.to_dict())
+
+
+@orders_bp.route('/pricing-config', methods=['GET'])
+@require_role('restaurant_admin')
+def get_order_pricing_config():
+    """Get effective order pricing settings for the current restaurant."""
+    restaurant_id = get_current_restaurant_id()
+    return jsonify(_get_order_pricing_settings(restaurant_id))
 
 
 
@@ -283,6 +370,7 @@ def update_order_status(order_id):
     is triggered dynamically and instantly.
     """
     restaurant_id = get_current_restaurant_id()
+    _apply_pending_order_timeouts(restaurant_id)
     order = Order.query.filter(
         Order.id == order_id,
         Order.restaurant_id == restaurant_id,
@@ -298,6 +386,20 @@ def update_order_status(order_id):
         return jsonify({'error': f'Invalid status. Must be one of: {", ".join(valid_statuses)}'}), 400
 
     old_status = order.status
+    if old_status == 'cancelled' and new_status != 'cancelled':
+        return jsonify({'error': 'Cancelled orders cannot be moved to another status.'}), 409
+
+    runtime_settings = _get_order_runtime_settings(restaurant_id)
+    if _is_pending_order_timed_out(order, runtime_settings['order_timeout_minutes']):
+        order.status = 'cancelled'
+        order.updated_at = datetime.now(timezone.utc)
+        db.session.commit()
+        db.session.refresh(order)
+        return jsonify({
+            'error': 'Order timed out and was auto-cancelled.',
+            'order': order.to_dict(),
+        }), 409
+
     order.status = new_status
     order.updated_at = datetime.now(timezone.utc)
     sync_route_stop_status(order, now=order.updated_at)
@@ -313,11 +415,17 @@ def update_order_status(order_id):
     # automatically transitions the order to "assigned"
     allocation_result = None
     if new_status == 'ready' and (old_status != 'ready' or order.driver_id is None):
-        try:
-            allocation_result = trigger_route_optimization(order.id)
-        except Exception as e:
-            # Don't fail the status update if optimization fails
-            print(f'Route optimization warning: {e}')
+        if runtime_settings['auto_assign_drivers']:
+            try:
+                allocation_result = trigger_route_optimization(order.id)
+            except Exception as e:
+                # Don't fail the status update if optimization fails
+                print(f'Route optimization warning: {e}')
+        else:
+            allocation_result = {
+                'message': 'Auto-assignment is disabled in settings.',
+                'auto_assign_drivers': False,
+            }
 
     if new_status == 'delivered' and order.driver_id:
         try:

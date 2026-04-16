@@ -14,6 +14,7 @@ from flask import Blueprint, request, jsonify
 from app import db
 from app.models.order import Order, OrderItem
 from app.models.driver import Driver
+from app.models.settings import Settings, DEFAULT_SETTINGS
 from app.utils.auth import get_current_restaurant_id, require_role
 from sqlalchemy import func, case, extract
 from datetime import datetime, timezone, timedelta
@@ -34,6 +35,16 @@ def _get_date_range(time_range):
     return ranges.get(time_range, now - timedelta(days=7))
 
 
+def _analytics_enabled(restaurant_id):
+    fallback = DEFAULT_SETTINGS['enable_analytics'][0]
+    value = Settings.get_typed_for_restaurant('enable_analytics', restaurant_id, fallback=fallback)
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in ('true', '1', 'yes', 'on')
+    return bool(value)
+
+
 @analytics_bp.route('/summary', methods=['GET'])
 @require_role('restaurant_admin')
 def get_summary():
@@ -42,6 +53,8 @@ def get_summary():
     start_date = _get_date_range(time_range)
 
     restaurant_id = get_current_restaurant_id()
+    if not _analytics_enabled(restaurant_id):
+        return jsonify({'error': 'Analytics is disabled in settings'}), 403
 
     # Revenue metrics
     revenue_query = db.session.query(
@@ -176,6 +189,8 @@ def get_order_analytics():
     time_range = request.args.get('timeRange', '7days')
     start_date = _get_date_range(time_range)
     restaurant_id = get_current_restaurant_id()
+    if not _analytics_enabled(restaurant_id):
+        return jsonify({'error': 'Analytics is disabled in settings'}), 403
     total = Order.query.filter(
         Order.restaurant_id == restaurant_id,
         Order.created_at >= start_date,
@@ -199,6 +214,8 @@ def get_order_analytics():
 def get_driver_analytics():
     """Get driver performance metrics."""
     restaurant_id = get_current_restaurant_id()
+    if not _analytics_enabled(restaurant_id):
+        return jsonify({'error': 'Analytics is disabled in settings'}), 403
     drivers = Driver.query.filter(Driver.restaurant_id == restaurant_id).all()
     return jsonify({
         'total': len(drivers),
@@ -219,6 +236,8 @@ def get_driver_analytics():
 def get_top_items():
     """Get top selling items."""
     restaurant_id = get_current_restaurant_id()
+    if not _analytics_enabled(restaurant_id):
+        return jsonify({'error': 'Analytics is disabled in settings'}), 403
     time_range = request.args.get('timeRange', '7days')
     start_date = _get_date_range(time_range)
     limit = request.args.get('limit', 10, type=int)
@@ -254,6 +273,8 @@ def get_top_items():
 def get_hourly_distribution():
     """Get hourly order distribution."""
     restaurant_id = get_current_restaurant_id()
+    if not _analytics_enabled(restaurant_id):
+        return jsonify({'error': 'Analytics is disabled in settings'}), 403
     time_range = request.args.get('timeRange', '7days')
     start_date = _get_date_range(time_range)
 

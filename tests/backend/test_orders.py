@@ -1,4 +1,7 @@
+from datetime import datetime, timedelta, timezone
+
 from app import db
+from app.models.order import Order
 from app.models.settings import Settings
 
 
@@ -110,6 +113,117 @@ def test_create_order_prefers_geocoded_fee_over_default_setting(client, app, aut
     assert payload["delivery_fee"] == 7.8
     assert payload["platform_fee"] == 1.56
     assert payload["driver_fee"] == 6.24
+
+
+def test_get_order_pricing_config_uses_settings(client, app, auth_headers):
+    with app.app_context():
+        db.session.add(Settings(
+            key="default_delivery_fee",
+            value="6.5",
+            value_type="number",
+            category="order",
+            restaurant_id=1,
+        ))
+        db.session.add(Settings(
+            key="tax_rate",
+            value="9.4",
+            value_type="number",
+            category="order",
+            restaurant_id=1,
+        ))
+        db.session.commit()
+
+    response = client.get("/api/orders/pricing-config", headers=auth_headers)
+    assert response.status_code == 200
+
+    payload = response.get_json()
+    assert payload["default_delivery_fee"] == 6.5
+    assert payload["tax_rate"] == 9.4
+
+
+def test_update_order_ready_respects_auto_assign_setting(client, app, auth_headers, monkeypatch):
+    created = _create_order(client, auth_headers, monkeypatch)
+
+    with app.app_context():
+        db.session.add(Settings(
+            key="auto_assign_drivers",
+            value="false",
+            value_type="boolean",
+            category="order",
+            restaurant_id=1,
+        ))
+        db.session.commit()
+
+    monkeypatch.setattr(
+        "app.routes.orders.trigger_route_optimization",
+        lambda *_: (_ for _ in ()).throw(AssertionError("trigger_route_optimization should not run")),
+    )
+
+    response = client.patch(
+        f"/api/orders/{created['id']}",
+        headers=auth_headers,
+        json={"status": "ready"},
+    )
+    assert response.status_code == 200
+
+    payload = response.get_json()
+    assert payload["status"] == "ready"
+    assert payload["allocation"]["auto_assign_drivers"] is False
+
+
+def test_get_orders_auto_cancels_pending_timeout(client, app, auth_headers, monkeypatch):
+    created = _create_order(client, auth_headers, monkeypatch)
+
+    with app.app_context():
+        order = Order.query.get(created["id"])
+        order.created_at = datetime.now(timezone.utc) - timedelta(minutes=5)
+
+        db.session.add(Settings(
+            key="order_timeout_minutes",
+            value="1",
+            value_type="number",
+            category="order",
+            restaurant_id=1,
+        ))
+        db.session.commit()
+
+    response = client.get("/api/orders", headers=auth_headers)
+    assert response.status_code == 200
+
+    payload = response.get_json()
+    timed_out = next(order for order in payload if order["id"] == created["id"])
+    assert timed_out["status"] == "cancelled"
+
+
+def test_update_order_rejects_pending_timeout(client, app, auth_headers, monkeypatch):
+    created = _create_order(client, auth_headers, monkeypatch)
+
+    with app.app_context():
+        order = Order.query.get(created["id"])
+        order.created_at = datetime.now(timezone.utc) - timedelta(minutes=5)
+
+        db.session.add(Settings(
+            key="order_timeout_minutes",
+            value="1",
+            value_type="number",
+            category="order",
+            restaurant_id=1,
+        ))
+        db.session.commit()
+
+    response = client.patch(
+        f"/api/orders/{created['id']}",
+        headers=auth_headers,
+        json={"status": "preparing"},
+    )
+    assert response.status_code == 409
+
+    payload = response.get_json()
+    assert "cancelled" in payload["error"].lower()
+
+    verify = client.get(f"/api/orders/{created['id']}", headers=auth_headers)
+    assert verify.status_code == 200
+    assert verify.get_json()["status"] == "cancelled"
 
 
 def test_create_order_missing_required_fields(client, auth_headers):

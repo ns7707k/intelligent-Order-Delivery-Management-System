@@ -56,9 +56,11 @@ def _get_restaurant_depot():
         from app.models.settings import Settings
         from app.utils.geocoder import geocode_address
         use_platform = bool(restaurant.use_platform_drivers)
-        setting = Settings.query.filter_by(key='use_platform_drivers').first()
-        if setting is not None:
-            use_platform = setting.get_typed_value() is True
+        use_platform = Settings.get_typed_for_restaurant(
+            'use_platform_drivers',
+            restaurant.id,
+            fallback=use_platform,
+        ) is True
 
         lat = restaurant.latitude
         lng = restaurant.longitude
@@ -117,10 +119,11 @@ def get_eligible_drivers(restaurant_id):
     print(f"[ASSIGN] Restaurant lookup: restaurant={restaurant.name if restaurant else None}, use_platform_drivers on restaurant={use_platform}")
 
     # Allow settings toggle to control behavior before full restaurant setup flows
-    setting = Settings.query.filter_by(key='use_platform_drivers').first()
+    setting = Settings.get_for_restaurant('use_platform_drivers', restaurant_id)
     if setting is not None:
-        use_platform = setting.get_typed_value() is True
-        print(f"[ASSIGN] Settings override: use_platform_drivers setting found, value={setting.value}, type={setting.value_type}, get_typed_value()={setting.get_typed_value()}, use_platform now={use_platform}")
+        typed_value = setting.get_typed_value()
+        use_platform = typed_value is True
+        print(f"[ASSIGN] Settings override: use_platform_drivers setting found, value={setting.value}, type={setting.value_type}, get_typed_value()={typed_value}, use_platform now={use_platform}")
     else:
         print(f"[ASSIGN] Settings override: no use_platform_drivers setting found")
 

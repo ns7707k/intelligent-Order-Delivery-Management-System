@@ -17,8 +17,10 @@ import { ArrowLeft, Plus, Trash2, MapPin } from 'lucide-react';
 import { MapContainer, Marker, TileLayer } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
-import { createOrder, geocodeAddress, getSettings } from '../../services/api';
+import { createOrder, geocodeAddress, getOrderPricingConfig, getSettings } from '../../services/api';
 import { formatCurrencyGBP } from '../../utils/currency';
+
+const SETTINGS_CACHE_KEY = 'odms_settings_cache';
 
 const pinIcon = L.divIcon({
   html: '<div style="width:14px;height:14px;border-radius:50%;background:#1976d2;border:2px solid #fff;box-shadow:0 0 0 2px #1976d2"></div>',
@@ -78,6 +80,8 @@ const CreateOrder = () => {
     default_delivery_fee: 4.99,
     tax_rate: 8.0,
   });
+  const [pricingConfigLoading, setPricingConfigLoading] = useState(true);
+  const [pricingConfigWarning, setPricingConfigWarning] = useState(null);
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -96,24 +100,97 @@ const CreateOrder = () => {
   useEffect(() => {
     let active = true;
 
+    const applyPricingConfig = (source) => {
+      if (!source || typeof source !== 'object') {
+        return false;
+      }
+
+      const nextDefaultDeliveryFee = Number(source.default_delivery_fee);
+      const nextTaxRate = Number(source.tax_rate);
+      const hasDeliveryFee = Number.isFinite(nextDefaultDeliveryFee);
+      const hasTaxRate = Number.isFinite(nextTaxRate);
+
+      if (!hasDeliveryFee && !hasTaxRate) {
+        return false;
+      }
+
+      setPricingConfig((prev) => ({
+        default_delivery_fee: hasDeliveryFee ? nextDefaultDeliveryFee : prev.default_delivery_fee,
+        tax_rate: hasTaxRate ? nextTaxRate : prev.tax_rate,
+      }));
+
+      return true;
+    };
+
+    const persistPricingCache = (source) => {
+      if (!source || typeof source !== 'object') {
+        return;
+      }
+
+      try {
+        const existingRaw = localStorage.getItem(SETTINGS_CACHE_KEY);
+        const existing = existingRaw ? JSON.parse(existingRaw) : {};
+        const safeExisting = existing && typeof existing === 'object' ? existing : {};
+
+        const nextDefaultDeliveryFee = Number(source.default_delivery_fee);
+        const nextTaxRate = Number(source.tax_rate);
+
+        const payload = {
+          ...safeExisting,
+          ...(Number.isFinite(nextDefaultDeliveryFee) ? { default_delivery_fee: nextDefaultDeliveryFee } : {}),
+          ...(Number.isFinite(nextTaxRate) ? { tax_rate: nextTaxRate } : {}),
+        };
+
+        localStorage.setItem(SETTINGS_CACHE_KEY, JSON.stringify(payload));
+      } catch {
+        // Ignore cache write errors.
+      }
+    };
+
     const loadPricingSettings = async () => {
       try {
-        const settings = await getSettings();
-        if (!active || !settings || typeof settings !== 'object') return;
-
-        const nextDefaultDeliveryFee = Number(settings.default_delivery_fee);
-        const nextTaxRate = Number(settings.tax_rate);
-
-        setPricingConfig((prev) => ({
-          default_delivery_fee: Number.isFinite(nextDefaultDeliveryFee)
-            ? nextDefaultDeliveryFee
-            : prev.default_delivery_fee,
-          tax_rate: Number.isFinite(nextTaxRate)
-            ? nextTaxRate
-            : prev.tax_rate,
-        }));
+        const cachedRaw = localStorage.getItem(SETTINGS_CACHE_KEY);
+        if (cachedRaw) {
+          const cached = JSON.parse(cachedRaw);
+          if (active) {
+            applyPricingConfig(cached);
+          }
+        }
       } catch {
-        // Keep safe local defaults if settings endpoint is unavailable.
+        // Ignore cache read errors.
+      }
+
+      try {
+        const pricing = await getOrderPricingConfig();
+        if (!active) return;
+
+        if (applyPricingConfig(pricing)) {
+          persistPricingCache(pricing);
+          setPricingConfigWarning(null);
+          return;
+        }
+      } catch {
+        // Fallback to full settings endpoint.
+      }
+
+      try {
+        const settings = await getSettings();
+        if (!active) return;
+
+        if (applyPricingConfig(settings)) {
+          persistPricingCache(settings);
+          setPricingConfigWarning(null);
+        } else {
+          setPricingConfigWarning('Unable to read pricing settings. Using fallback defaults (£4.99 and 8%).');
+        }
+      } catch {
+        if (active) {
+          setPricingConfigWarning('Unable to load pricing settings. Using fallback defaults (£4.99 and 8%).');
+        }
+      } finally {
+        if (active) {
+          setPricingConfigLoading(false);
+        }
       }
     };
 
@@ -221,6 +298,9 @@ const CreateOrder = () => {
   };
 
   const totals = calculateTotal();
+  const taxRateLabel = Number.isFinite(Number(pricingConfig.tax_rate))
+    ? Number(pricingConfig.tax_rate).toFixed(2).replace(/\.?0+$/, '')
+    : '0';
 
   return (
     <Box sx={{ bgcolor: 'background.default', minHeight: '100vh', py: 4 }}>
@@ -232,6 +312,7 @@ const CreateOrder = () => {
 
         {error ? <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert> : null}
         {success ? <Alert severity="success" sx={{ mb: 2 }}>Order created successfully!</Alert> : null}
+        {pricingConfigWarning ? <Alert severity="warning" sx={{ mb: 2 }}>{pricingConfigWarning}</Alert> : null}
 
         <form onSubmit={handleSubmit}>
           <Paper sx={{ p: 3, mb: 3 }}>
@@ -319,8 +400,13 @@ const CreateOrder = () => {
             ))}
 
             <Box sx={{ mt: 3, p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
+              {pricingConfigLoading ? (
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+                  Loading pricing settings...
+                </Typography>
+              ) : null}
               <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}><Typography>Subtotal</Typography><Typography>{formatCurrencyGBP(totals.subtotal)}</Typography></Box>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}><Typography>Tax ({pricingConfig.tax_rate}%)</Typography><Typography>{formatCurrencyGBP(totals.tax)}</Typography></Box>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}><Typography>Tax ({taxRateLabel}%)</Typography><Typography>{formatCurrencyGBP(totals.tax)}</Typography></Box>
               <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}><Typography>Delivery Fee</Typography><Typography>{formatCurrencyGBP(totals.deliveryFee)}</Typography></Box>
               <Divider sx={{ my: 1 }} />
               <Box sx={{ display: 'flex', justifyContent: 'space-between' }}><Typography variant="h6" fontWeight="bold">Total</Typography><Typography variant="h6" fontWeight="bold">{formatCurrencyGBP(totals.total)}</Typography></Box>

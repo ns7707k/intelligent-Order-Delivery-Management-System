@@ -123,6 +123,16 @@ export const createOrder = async (orderData) => {
   }
 };
 
+export const getOrderPricingConfig = async () => {
+  try {
+    const response = await api.get('/orders/pricing-config');
+    return response.data;
+  } catch (error) {
+    console.error('API Error - Get Order Pricing Config:', error);
+    throw error;
+  }
+};
+
 // Heatmap API
 export const getHeatmapData = async (type = 'live') => {
   try {

@@ -1,6 +1,17 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { getOrders, updateOrderStatus } from '../services/api';
+import { getOrders, getSettings, updateOrderStatus } from '../services/api';
 import { useAuth } from './AuthContext';
+
+const SETTINGS_CACHE_KEY = 'odms_settings_cache';
+const DEFAULT_REFRESH_INTERVAL_MS = 5000;
+
+const toRefreshIntervalMs = (secondsValue) => {
+  const parsed = Number(secondsValue);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return DEFAULT_REFRESH_INTERVAL_MS;
+  }
+  return Math.max(1000, Math.round(parsed * 1000));
+};
 
 const OrderContext = createContext();
 
@@ -17,6 +28,7 @@ export const OrderProvider = ({ children }) => {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [refreshIntervalMs, setRefreshIntervalMs] = useState(DEFAULT_REFRESH_INTERVAL_MS);
 
   // Fetch orders on mount
   useEffect(() => {
@@ -27,13 +39,49 @@ export const OrderProvider = ({ children }) => {
       return undefined;
     }
 
+    const loadRefreshInterval = async () => {
+      try {
+        const cachedRaw = localStorage.getItem(SETTINGS_CACHE_KEY);
+        if (cachedRaw) {
+          const cached = JSON.parse(cachedRaw);
+          if (cached && typeof cached === 'object') {
+            setRefreshIntervalMs(toRefreshIntervalMs(cached.refresh_interval));
+          }
+        }
+      } catch {
+        // Ignore cache read errors.
+      }
+
+      try {
+        const settings = await getSettings();
+        if (settings && typeof settings === 'object') {
+          setRefreshIntervalMs(toRefreshIntervalMs(settings.refresh_interval));
+
+          try {
+            const cachedRaw = localStorage.getItem(SETTINGS_CACHE_KEY);
+            const cached = cachedRaw ? JSON.parse(cachedRaw) : {};
+            const nextCache = {
+              ...(cached && typeof cached === 'object' ? cached : {}),
+              refresh_interval: settings.refresh_interval,
+            };
+            localStorage.setItem(SETTINGS_CACHE_KEY, JSON.stringify(nextCache));
+          } catch {
+            // Ignore cache write errors.
+          }
+        }
+      } catch {
+        // Keep existing polling interval when settings call fails.
+      }
+    };
+
     fetchOrders();
-    
-    // Set up polling for real-time updates (every 5 seconds)
-    const interval = setInterval(fetchOrders, 5000);
+
+    // Set up polling for real-time updates using the configured interval.
+    const interval = setInterval(fetchOrders, refreshIntervalMs);
+    loadRefreshInterval();
     
     return () => clearInterval(interval);
-  }, [user]);
+  }, [user, refreshIntervalMs]);
 
   const fetchOrders = async () => {
     try {

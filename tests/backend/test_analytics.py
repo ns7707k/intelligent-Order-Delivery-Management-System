@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from app import db
 from app.models.driver import Driver
 from app.models.order import Order, OrderItem
+from app.models.settings import Settings
 
 
 def _seed_analytics_data(app):
@@ -115,3 +116,19 @@ def test_analytics_hourly_distribution(client, app, auth_headers):
     assert response.status_code == 200
     payload = response.get_json()
     assert isinstance(payload, list)
+
+
+def test_analytics_respects_enable_analytics_setting(client, app, auth_headers):
+    with app.app_context():
+        db.session.add(Settings(
+            key="enable_analytics",
+            value="false",
+            value_type="boolean",
+            category="system",
+            restaurant_id=1,
+        ))
+        db.session.commit()
+
+    response = client.get("/api/analytics/summary?timeRange=7days", headers=auth_headers)
+    assert response.status_code == 403
+    assert "disabled" in response.get_json()["error"].lower()

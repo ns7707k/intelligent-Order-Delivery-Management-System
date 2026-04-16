@@ -17,6 +17,16 @@ from app.utils.auth import get_current_restaurant_id, require_role
 settings_bp = Blueprint('settings', __name__)
 
 
+def _coerce_bool(value):
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    if isinstance(value, str):
+        return value.strip().lower() in ('true', '1', 'yes', 'on')
+    return bool(value)
+
+
 def _get_setting_for_restaurant(key, restaurant_id):
     """
     Return restaurant-scoped setting, with backward compatibility for legacy
@@ -101,7 +111,7 @@ def update_settings():
         if key == 'use_platform_drivers':
             restaurant = Restaurant.query.get(restaurant_id)
             if restaurant:
-                restaurant.use_platform_drivers = bool(value)
+                restaurant.use_platform_drivers = _coerce_bool(value)
 
     db.session.commit()
 

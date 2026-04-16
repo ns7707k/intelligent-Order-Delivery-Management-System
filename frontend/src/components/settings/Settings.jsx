@@ -29,6 +29,8 @@ import StorefrontIcon from '@mui/icons-material/Storefront';
 import LocationOnIcon from '@mui/icons-material/LocationOn';
 import { getRestaurant, registerRestaurant, updateRestaurant, getSettings, updateSettings, registerDriverAccount, geocodeAddress } from '../../services/api';
 
+const SETTINGS_CACHE_KEY = 'odms_settings_cache';
+
 const Settings = () => {
   const [tabValue, setTabValue] = useState(0);
   const [saved, setSaved] = useState(false);
@@ -76,6 +78,14 @@ const Settings = () => {
     data_retention_days: 90,
   });
 
+  const cacheSettings = (nextSettings) => {
+    try {
+      localStorage.setItem(SETTINGS_CACHE_KEY, JSON.stringify(nextSettings));
+    } catch {
+      // Ignore cache write failures.
+    }
+  };
+
   useEffect(() => {
     const loadData = async () => {
       try {
@@ -105,25 +115,30 @@ const Settings = () => {
         try {
           const settingsData = await getSettings();
           if (settingsData && typeof settingsData === 'object') {
-            setSettings(prev => ({
-              ...prev,
-              voice_confidence_threshold: settingsData.voice_confidence_threshold ?? prev.voice_confidence_threshold,
-              voice_auto_start: settingsData.voice_auto_start ?? prev.voice_auto_start,
-              voice_confirmation_required: settingsData.voice_confirmation_required ?? prev.voice_confirmation_required,
-              default_map_zoom: settingsData.default_map_zoom ?? prev.default_map_zoom,
-              map_style: settingsData.map_style ?? prev.map_style,
-              show_heatmap_by_default: settingsData.show_heatmap_by_default ?? prev.show_heatmap_by_default,
-              default_delivery_fee: settingsData.default_delivery_fee ?? prev.default_delivery_fee,
-              tax_rate: settingsData.tax_rate ?? prev.tax_rate,
-              auto_assign_drivers: settingsData.auto_assign_drivers ?? prev.auto_assign_drivers,
-              use_platform_drivers: settingsData.use_platform_drivers ?? prev.use_platform_drivers,
-              allow_driver_self_delivery: settingsData.allow_driver_self_delivery ?? prev.allow_driver_self_delivery,
-              order_timeout_minutes: settingsData.order_timeout_minutes ?? prev.order_timeout_minutes,
-              refresh_interval: settingsData.refresh_interval ?? prev.refresh_interval,
-              max_active_drivers: settingsData.max_active_drivers ?? prev.max_active_drivers,
-              enable_analytics: settingsData.enable_analytics ?? prev.enable_analytics,
-              data_retention_days: settingsData.data_retention_days ?? prev.data_retention_days,
-            }));
+            setSettings(prev => {
+              const merged = {
+                ...prev,
+                voice_confidence_threshold: settingsData.voice_confidence_threshold ?? prev.voice_confidence_threshold,
+                voice_auto_start: settingsData.voice_auto_start ?? prev.voice_auto_start,
+                voice_confirmation_required: settingsData.voice_confirmation_required ?? prev.voice_confirmation_required,
+                default_map_zoom: settingsData.default_map_zoom ?? prev.default_map_zoom,
+                map_style: settingsData.map_style ?? prev.map_style,
+                show_heatmap_by_default: settingsData.show_heatmap_by_default ?? prev.show_heatmap_by_default,
+                default_delivery_fee: settingsData.default_delivery_fee ?? prev.default_delivery_fee,
+                tax_rate: settingsData.tax_rate ?? prev.tax_rate,
+                auto_assign_drivers: settingsData.auto_assign_drivers ?? prev.auto_assign_drivers,
+                use_platform_drivers: settingsData.use_platform_drivers ?? prev.use_platform_drivers,
+                allow_driver_self_delivery: settingsData.allow_driver_self_delivery ?? prev.allow_driver_self_delivery,
+                order_timeout_minutes: settingsData.order_timeout_minutes ?? prev.order_timeout_minutes,
+                refresh_interval: settingsData.refresh_interval ?? prev.refresh_interval,
+                max_active_drivers: settingsData.max_active_drivers ?? prev.max_active_drivers,
+                enable_analytics: settingsData.enable_analytics ?? prev.enable_analytics,
+                data_retention_days: settingsData.data_retention_days ?? prev.data_retention_days,
+              };
+
+              cacheSettings(merged);
+              return merged;
+            });
           }
         } catch (err) {
           console.error('Failed to load settings:', err);
@@ -227,6 +242,7 @@ const Settings = () => {
       setError('');
       try {
         await updateSettings(settings);
+        cacheSettings(settings);
         setSaved(true);
         setTimeout(() => setSaved(false), 3000);
       } catch (err) {
@@ -313,7 +329,7 @@ const Settings = () => {
 
         <Paper>
           <Tabs value={tabValue} onChange={(e, v) => setTabValue(v)}>
-            <Tab label="🏪 Restaurant" />
+            <Tab label="=�Ŭ Restaurant" />
             <Tab label="Voice System" />
             <Tab label="Map & Routes" />
             <Tab label="Orders" />
@@ -387,8 +403,8 @@ const Settings = () => {
                     Restaurant Location (GPS)
                   </Typography>
                   <Typography variant="caption" color="text.secondary">
-                    This is the depot for VRP — all delivery/return ETAs are calculated from here.
-                    Get coordinates from Google Maps (right-click → "What's here?").
+                    This is the depot for VRP G�� all delivery/return ETAs are calculated from here.
+                    Get coordinates from Google Maps (right-click G�� "What's here?").
                   </Typography>
                 </Grid>
                 <Grid item xs={12} md={6}>
@@ -573,7 +589,7 @@ const Settings = () => {
                   <TextField
                     fullWidth
                     type="number"
-                    label="Default Delivery Fee (£)"
+                    label="Default Delivery Fee (-�)"
                     value={settings.default_delivery_fee}
                     onChange={(e) => handleSettingsChange('default_delivery_fee', parseFloat(e.target.value))}
                     inputProps={{ min: 0, step: 0.01 }}
