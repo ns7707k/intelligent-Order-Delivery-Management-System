@@ -20,14 +20,16 @@ settings_bp = Blueprint('settings', __name__)
 def _get_setting_for_restaurant(key, restaurant_id):
     """
     Return restaurant-scoped setting, with backward compatibility for legacy
-    global rows (restaurant_id=NULL) created by older seed scripts.
+    single-key rows created before restaurant scoping was consistent.
     """
     setting = Settings.query.filter_by(key=key, restaurant_id=restaurant_id).first()
     if setting:
         return setting
 
-    legacy_setting = Settings.query.filter_by(key=key, restaurant_id=None).first()
-    if legacy_setting and restaurant_id is not None:
+    # Legacy databases may have a single global row per key (restaurant_id=NULL)
+    # or rows tied to an older restaurant_id while key remains globally unique.
+    legacy_setting = Settings.query.filter_by(key=key).first()
+    if legacy_setting and restaurant_id is not None and legacy_setting.restaurant_id != restaurant_id:
         legacy_setting.restaurant_id = restaurant_id
     return legacy_setting
 

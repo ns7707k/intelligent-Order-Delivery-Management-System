@@ -113,3 +113,25 @@ def test_update_settings_uses_legacy_global_rows(client, app, auth_headers):
         setting = Settings.query.filter_by(key="tax_rate", restaurant_id=1).first()
         assert setting is not None
         assert setting.value == "9.5"
+
+
+def test_get_settings_migrates_legacy_rows_from_other_restaurant(client, app, auth_headers):
+    with app.app_context():
+        legacy = Settings(
+            key="order_timeout_minutes",
+            value="45",
+            value_type="number",
+            category="order",
+            restaurant_id=999,
+        )
+        db.session.add(legacy)
+        db.session.commit()
+
+    response = client.get("/api/settings", headers=auth_headers)
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["order_timeout_minutes"] == 45
+
+    with app.app_context():
+        setting = Settings.query.filter_by(key="order_timeout_minutes", restaurant_id=1).first()
+        assert setting is not None
