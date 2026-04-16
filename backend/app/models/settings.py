@@ -45,6 +45,34 @@ class Settings(db.Model):
     def __repr__(self):
         return f'<Settings {self.key}={self.value}>'
 
+    @classmethod
+    def get_for_restaurant(cls, key, restaurant_id, rehome_legacy=True):
+        """Return a setting for a restaurant, with legacy row compatibility."""
+        setting = cls.query.filter_by(key=key, restaurant_id=restaurant_id).first()
+        if setting:
+            return setting
+
+        legacy_setting = cls.query.filter_by(key=key).first()
+        if (
+            legacy_setting
+            and restaurant_id is not None
+            and rehome_legacy
+            and legacy_setting.restaurant_id != restaurant_id
+        ):
+            legacy_setting.restaurant_id = restaurant_id
+
+        return legacy_setting
+
+    @classmethod
+    def get_typed_for_restaurant(cls, key, restaurant_id, fallback=None, rehome_legacy=True):
+        """Return typed value for a restaurant setting or a fallback when absent."""
+        setting = cls.get_for_restaurant(key, restaurant_id, rehome_legacy=rehome_legacy)
+        if not setting:
+            return fallback
+
+        value = setting.get_typed_value()
+        return fallback if value is None else value
+
 
 # Default settings that match the frontend Settings component
 DEFAULT_SETTINGS = {

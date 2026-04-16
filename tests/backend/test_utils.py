@@ -1,5 +1,8 @@
 import requests
 
+from app import db
+from app.models.restaurant import Restaurant
+from app.models.settings import Settings
 from app.utils.geocoder import geocode_address, geocode_address_with_display, get_geocoding_details
 from app.utils.haversine import haversine
 from app.utils.validators import validate_coordinates, validate_required_fields, validate_status
@@ -95,3 +98,33 @@ def test_geocode_with_display_and_details(monkeypatch):
 def test_geocoding_details_returns_empty_when_unresolved(monkeypatch):
     monkeypatch.setattr("app.utils.geocoder.geocode_address_with_display", lambda *_: None)
     assert get_geocoding_details("Unknown") == {}
+
+
+def test_geocoding_details_uses_configured_default_delivery_fee(app, monkeypatch):
+    with app.app_context():
+        restaurant = Restaurant(
+            name="Geocoder Settings",
+            address="10 Downing Street, London",
+            latitude=51.5074,
+            longitude=-0.1278,
+            avg_speed_kmh=30,
+        )
+        db.session.add(restaurant)
+        db.session.flush()
+
+        db.session.add(Settings(
+            key='default_delivery_fee',
+            value='6.5',
+            value_type='number',
+            category='order',
+            restaurant_id=restaurant.id,
+        ))
+        db.session.commit()
+
+        monkeypatch.setattr(
+            "app.utils.geocoder.geocode_address_with_display",
+            lambda *_: {"lat": 51.5, "lng": -0.12, "display_address": "Display London"},
+        )
+
+        details = get_geocoding_details("London", restaurant=restaurant)
+        assert details["delivery_fee"] >= 6.5

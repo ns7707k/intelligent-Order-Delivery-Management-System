@@ -22,16 +22,7 @@ def _get_setting_for_restaurant(key, restaurant_id):
     Return restaurant-scoped setting, with backward compatibility for legacy
     single-key rows created before restaurant scoping was consistent.
     """
-    setting = Settings.query.filter_by(key=key, restaurant_id=restaurant_id).first()
-    if setting:
-        return setting
-
-    # Legacy databases may have a single global row per key (restaurant_id=NULL)
-    # or rows tied to an older restaurant_id while key remains globally unique.
-    legacy_setting = Settings.query.filter_by(key=key).first()
-    if legacy_setting and restaurant_id is not None and legacy_setting.restaurant_id != restaurant_id:
-        legacy_setting.restaurant_id = restaurant_id
-    return legacy_setting
+    return Settings.get_for_restaurant(key, restaurant_id, rehome_legacy=True)
 
 
 def _ensure_defaults(restaurant_id):

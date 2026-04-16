@@ -74,8 +74,22 @@ def get_me():
         if order and order.driver_id == driver.id and order.status in ('assigned', 'out_for_delivery'):
             active_order = _serialize_driver_order(order, driver)
 
+    today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    delivered_today = Order.query.filter(
+        Order.driver_id == driver.id,
+        Order.status == 'delivered',
+        Order.updated_at >= today_start,
+    ).all()
+    earnings_today = round(sum(
+        float((order.driver_fee if (order.driver_fee or 0) > 0 else order.delivery_fee) or 0)
+        for order in delivered_today
+    ), 2)
+
+    driver_payload = driver.to_dict()
+    driver_payload['earnings_today'] = earnings_today
+
     return jsonify({
-        'driver': driver.to_dict(),
+        'driver': driver_payload,
         'active_order': active_order,
     })
 

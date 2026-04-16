@@ -126,7 +126,7 @@ function DriverDeliveryView() {
                 <Typography><strong>Pickup:</strong> {order?.pickup_address || 'Restaurant pickup'}</Typography>
                 <Typography><strong>Dropoff:</strong> {order?.delivery_address}</Typography>
                 <Typography><strong>ETA:</strong> {order?.estimated_delivery_minutes || '-'} min</Typography>
-                <Typography><strong>Earnings:</strong> {formatCurrencyGBP(order?.delivery_fee || 4.99)}</Typography>
+                <Typography><strong>Earnings:</strong> {formatCurrencyGBP(order?.delivery_fee ?? 0)}</Typography>
                 <Typography><strong>Payment Method:</strong> {order?.payment_method}</Typography>
                 <Typography><strong>Payment Status:</strong> {order?.payment_status}</Typography>
                 <Box sx={{ mt: 1.2 }}>

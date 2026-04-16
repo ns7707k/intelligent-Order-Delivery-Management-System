@@ -7,11 +7,32 @@ import requests
 import logging
 import re
 
+from app.models.settings import Settings, DEFAULT_SETTINGS
+
 log = logging.getLogger(__name__)
 
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
 HEADERS = {"User-Agent": "ODMS-FYP/1.0"}
 NOMINATIM_TIMEOUT = 5  # seconds
+
+
+def _resolve_default_delivery_fee(restaurant):
+    """Resolve restaurant default delivery fee from settings with safe fallback."""
+    fallback = float(DEFAULT_SETTINGS['default_delivery_fee'][0])
+    restaurant_id = getattr(restaurant, 'id', None)
+    if restaurant_id is None:
+        return fallback
+
+    try:
+        configured = Settings.get_typed_for_restaurant(
+            'default_delivery_fee',
+            restaurant_id,
+            fallback=fallback,
+        )
+        value = float(configured)
+        return value if value >= 0 else fallback
+    except Exception:
+        return fallback
 
 
 def _extract_uk_postcode(address: str):
@@ -163,8 +184,9 @@ def get_geocoding_details(address: str, restaurant=None):
             lng
         )
         
-        # Delivery fee logic: base £2.99 + £0.50 per km beyond 2km
-        base_fee = 2.99
+        # Delivery fee logic: base uses configured default delivery fee, with
+        # additional per-km uplift beyond 2km.
+        base_fee = _resolve_default_delivery_fee(restaurant)
         extra = max(0, distance_km - 2) * 0.50
         delivery_fee = round(base_fee + extra, 2)
         

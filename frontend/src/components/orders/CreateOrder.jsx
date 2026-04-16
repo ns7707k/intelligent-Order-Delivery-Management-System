@@ -17,7 +17,7 @@ import { ArrowLeft, Plus, Trash2, MapPin } from 'lucide-react';
 import { MapContainer, Marker, TileLayer } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
-import { createOrder, geocodeAddress } from '../../services/api';
+import { createOrder, geocodeAddress, getSettings } from '../../services/api';
 import { formatCurrencyGBP } from '../../utils/currency';
 
 const pinIcon = L.divIcon({
@@ -74,6 +74,10 @@ const CreateOrder = () => {
   const [geocodingResult, setGeocodingResult] = useState(null);
   const [geocodingError, setGeocodingError] = useState(null);
   const [confirmedGeo, setConfirmedGeo] = useState(null);
+  const [pricingConfig, setPricingConfig] = useState({
+    default_delivery_fee: 4.99,
+    tax_rate: 8.0,
+  });
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -88,6 +92,37 @@ const CreateOrder = () => {
 
   const addItem = () => setItems([...items, { name: '', quantity: 1, price: 0 }]);
   const removeItem = (index) => items.length > 1 && setItems(items.filter((_, i) => i !== index));
+
+  useEffect(() => {
+    let active = true;
+
+    const loadPricingSettings = async () => {
+      try {
+        const settings = await getSettings();
+        if (!active || !settings || typeof settings !== 'object') return;
+
+        const nextDefaultDeliveryFee = Number(settings.default_delivery_fee);
+        const nextTaxRate = Number(settings.tax_rate);
+
+        setPricingConfig((prev) => ({
+          default_delivery_fee: Number.isFinite(nextDefaultDeliveryFee)
+            ? nextDefaultDeliveryFee
+            : prev.default_delivery_fee,
+          tax_rate: Number.isFinite(nextTaxRate)
+            ? nextTaxRate
+            : prev.tax_rate,
+        }));
+      } catch {
+        // Keep safe local defaults if settings endpoint is unavailable.
+      }
+    };
+
+    loadPricingSettings();
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     const t = setTimeout(async () => {
@@ -144,9 +179,14 @@ const CreateOrder = () => {
   };
 
   const calculateTotal = () => {
+    const configuredTaxRate = Number(pricingConfig.tax_rate);
+    const taxRatePercent = Number.isFinite(configuredTaxRate) ? configuredTaxRate : 0;
+    const configuredDefaultFee = Number(pricingConfig.default_delivery_fee);
+    const defaultDeliveryFee = Number.isFinite(configuredDefaultFee) ? configuredDefaultFee : 0;
+
     const subtotal = items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-    const tax = subtotal * 0.08;
-    const deliveryFee = confirmedGeo?.delivery_fee || geocodingResult?.delivery_fee || 4.99;
+    const tax = subtotal * (taxRatePercent / 100);
+    const deliveryFee = confirmedGeo?.delivery_fee ?? geocodingResult?.delivery_fee ?? defaultDeliveryFee;
     return {
       subtotal: subtotal.toFixed(2),
       tax: tax.toFixed(2),
@@ -222,7 +262,7 @@ const CreateOrder = () => {
                     </Box>
                     <Typography variant="body2">Distance: {geocodingResult.distance_km ?? '-'} km</Typography>
                     <Typography variant="body2">Estimated time: ~{geocodingResult.eta_minutes ?? '-'} min</Typography>
-                    <Typography variant="body2" sx={{ mb: 2 }}>Delivery fee: {formatCurrencyGBP(geocodingResult.delivery_fee ?? 4.99)}</Typography>
+                    <Typography variant="body2" sx={{ mb: 2 }}>Delivery fee: {formatCurrencyGBP(geocodingResult.delivery_fee ?? pricingConfig.default_delivery_fee)}</Typography>
 
                     <Box sx={{ height: 200, borderRadius: 2, overflow: 'hidden', mb: 2 }}>
                       <MapContainer
@@ -280,7 +320,7 @@ const CreateOrder = () => {
 
             <Box sx={{ mt: 3, p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
               <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}><Typography>Subtotal</Typography><Typography>{formatCurrencyGBP(totals.subtotal)}</Typography></Box>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}><Typography>Tax (8%)</Typography><Typography>{formatCurrencyGBP(totals.tax)}</Typography></Box>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}><Typography>Tax ({pricingConfig.tax_rate}%)</Typography><Typography>{formatCurrencyGBP(totals.tax)}</Typography></Box>
               <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}><Typography>Delivery Fee</Typography><Typography>{formatCurrencyGBP(totals.deliveryFee)}</Typography></Box>
               <Divider sx={{ my: 1 }} />
               <Box sx={{ display: 'flex', justifyContent: 'space-between' }}><Typography variant="h6" fontWeight="bold">Total</Typography><Typography variant="h6" fontWeight="bold">{formatCurrencyGBP(totals.total)}</Typography></Box>

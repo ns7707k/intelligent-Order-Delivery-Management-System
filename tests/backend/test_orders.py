@@ -1,3 +1,7 @@
+from app import db
+from app.models.settings import Settings
+
+
 def _create_order(client, headers, monkeypatch, name="Order Customer"):
     monkeypatch.setattr("app.routes.orders.get_geocoding_details", lambda *args, **kwargs: {})
     response = client.post(
@@ -23,6 +27,89 @@ def _create_order(client, headers, monkeypatch, name="Order Customer"):
 def test_create_order_success(client, auth_headers, monkeypatch):
     payload = _create_order(client, auth_headers, monkeypatch)
     assert payload["status"] == "pending"
+
+
+def test_create_order_uses_restaurant_settings_for_pricing(client, app, auth_headers, monkeypatch):
+    monkeypatch.setattr("app.routes.orders.get_geocoding_details", lambda *args, **kwargs: {})
+
+    with app.app_context():
+        db.session.add(Settings(
+            key="default_delivery_fee",
+            value="6.5",
+            value_type="number",
+            category="order",
+            restaurant_id=1,
+        ))
+        db.session.add(Settings(
+            key="tax_rate",
+            value="9.4",
+            value_type="number",
+            category="order",
+            restaurant_id=1,
+        ))
+        db.session.commit()
+
+    response = client.post(
+        "/api/orders",
+        headers=auth_headers,
+        json={
+            "customer_name": "Settings Pricing",
+            "customer_phone": "+440000000023",
+            "delivery_address": "5 Test Street, London",
+            "items": [{"name": "Burger", "quantity": 2, "price": 10.0}],
+            "subtotal": 20.0,
+            "latitude": 51.5074,
+            "longitude": -0.1278,
+        },
+    )
+    assert response.status_code == 201
+    payload = response.get_json()
+
+    assert payload["tax"] == 1.88
+    assert payload["delivery_fee"] == 6.5
+    assert payload["total"] == 28.38
+
+
+def test_create_order_prefers_geocoded_fee_over_default_setting(client, app, auth_headers, monkeypatch):
+    with app.app_context():
+        db.session.add(Settings(
+            key="default_delivery_fee",
+            value="6.5",
+            value_type="number",
+            category="order",
+            restaurant_id=1,
+        ))
+        db.session.commit()
+
+    monkeypatch.setattr(
+        "app.routes.orders.get_geocoding_details",
+        lambda *args, **kwargs: {
+            "lat": 51.6,
+            "lng": -0.11,
+            "display_address": "Resolved Address",
+            "delivery_fee": 7.8,
+            "platform_fee": 1.56,
+            "driver_fee": 6.24,
+        },
+    )
+
+    response = client.post(
+        "/api/orders",
+        headers=auth_headers,
+        json={
+            "customer_name": "Geo Pricing",
+            "customer_phone": "+440000000024",
+            "delivery_address": "6 Test Street, London",
+            "items": [{"name": "Wrap", "quantity": 1, "price": 12.0}],
+            "subtotal": 12.0,
+        },
+    )
+    assert response.status_code == 201
+    payload = response.get_json()
+
+    assert payload["delivery_fee"] == 7.8
+    assert payload["platform_fee"] == 1.56
+    assert payload["driver_fee"] == 6.24
 
 
 def test_create_order_missing_required_fields(client, auth_headers):

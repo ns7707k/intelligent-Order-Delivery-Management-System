@@ -126,7 +126,7 @@ function DriverDashboard() {
 
   const stats = useMemo(() => ({
     deliveriesToday: driver?.total_deliveries || 0,
-    earningsToday: (driver?.total_deliveries || 0) * 4.99,
+    earningsToday: Number(driver?.earnings_today ?? 0),
     hoursActive: driver?.status === 'offline' ? '0.0' : '8.0',
   }), [driver]);
 
@@ -283,7 +283,7 @@ function DriverDashboard() {
                     <Typography variant="body2" color="text.secondary"><strong>Pickup:</strong> {activeOrder.pickup_address || 'Restaurant pickup point'}</Typography>
                     <Typography variant="body2" color="text.secondary"><strong>Dropoff:</strong> {activeOrder.delivery_address}</Typography>
                     <Typography variant="body2" color="text.secondary"><strong>ETA:</strong> {activeOrder.estimated_delivery_minutes || '-'} min</Typography>
-                    <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}><strong>Earnings:</strong> {formatCurrencyGBP(activeOrder.delivery_fee || 4.99)}</Typography>
+                    <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}><strong>Earnings:</strong> {formatCurrencyGBP(activeOrder.delivery_fee ?? 0)}</Typography>
 
                     <Grid container spacing={1}>
                       <Grid item xs={6}>

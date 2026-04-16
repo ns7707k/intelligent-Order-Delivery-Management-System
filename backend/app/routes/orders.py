@@ -15,6 +15,7 @@ from app import db
 from app.models.order import Order, OrderItem
 from app.models.driver import Driver
 from app.models.restaurant import Restaurant
+from app.models.settings import Settings, DEFAULT_SETTINGS
 from app.services.order_lifecycle import apply_due_lifecycle_transitions, finalize_order_delivery, schedule_order_lifecycle, sync_route_stop_status
 from app.services.route_optimizer import trigger_route_optimization
 from app.services.driver_location_simulator import stop_driver_location_simulation
@@ -23,6 +24,51 @@ from app.utils.geocoder import get_geocoding_details
 from datetime import datetime, timezone, timedelta
 
 orders_bp = Blueprint('orders', __name__)
+
+
+def _to_float(value, fallback=0.0):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return float(fallback)
+
+
+def _to_non_negative_float(value, fallback=0.0):
+    parsed = _to_float(value, fallback)
+    return parsed if parsed >= 0 else float(fallback)
+
+
+def _to_positive_int(value, fallback=1):
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return int(fallback)
+    return parsed if parsed > 0 else int(fallback)
+
+
+def _get_order_pricing_settings(restaurant_id):
+    default_delivery_fee = _to_non_negative_float(
+        Settings.get_typed_for_restaurant(
+            'default_delivery_fee',
+            restaurant_id,
+            fallback=float(DEFAULT_SETTINGS['default_delivery_fee'][0]),
+        ),
+        fallback=float(DEFAULT_SETTINGS['default_delivery_fee'][0]),
+    )
+    tax_rate = _to_non_negative_float(
+        Settings.get_typed_for_restaurant(
+            'tax_rate',
+            restaurant_id,
+            fallback=float(DEFAULT_SETTINGS['tax_rate'][0]),
+        ),
+        fallback=float(DEFAULT_SETTINGS['tax_rate'][0]),
+    )
+    tax_rate = min(tax_rate, 100.0)
+
+    return {
+        'default_delivery_fee': default_delivery_fee,
+        'tax_rate': tax_rate,
+    }
 
 
 def _clear_stale_ready_assignments(restaurant_id):
@@ -148,21 +194,41 @@ def create_order():
     else:
         payment_status = 'Pending'
 
+    restaurant_id = get_current_restaurant_id()
+    pricing = _get_order_pricing_settings(restaurant_id)
+
     # Resolve geocoding and compute distance-based fees if possible
-    restaurant = Restaurant.query.get(get_current_restaurant_id())
+    restaurant = Restaurant.query.get(restaurant_id)
     geo = None
     try:
         geo = get_geocoding_details(data['delivery_address'], restaurant)
     except Exception:
         geo = None
 
-    delivery_fee_val = float(data.get('deliveryFee', data.get('delivery_fee', 4.99)))
-    platform_fee_val = 0.0
-    driver_fee_val = 0.0
+    items = data.get('items', [])
+    subtotal_val = _to_non_negative_float(data.get('subtotal'), 0.0)
+    if subtotal_val == 0.0 and items:
+        subtotal_val = round(sum(
+            _to_non_negative_float(item_data.get('price'), 0.0) * _to_positive_int(item_data.get('quantity', 1), 1)
+            for item_data in items
+        ), 2)
+
+    tax_val = round(subtotal_val * (pricing['tax_rate'] / 100.0), 2)
+
+    requested_delivery_fee = data.get('deliveryFee', data.get('delivery_fee'))
+    delivery_fee_val = pricing['default_delivery_fee'] if requested_delivery_fee is None else _to_non_negative_float(
+        requested_delivery_fee,
+        pricing['default_delivery_fee'],
+    )
+    platform_fee_val = round(delivery_fee_val * 0.2, 2)
+    driver_fee_val = round(delivery_fee_val - platform_fee_val, 2)
+
     if geo and geo.get('delivery_fee') is not None:
-        delivery_fee_val = float(geo.get('delivery_fee'))
-        platform_fee_val = float(geo.get('platform_fee', round(delivery_fee_val * 0.2, 2)))
-        driver_fee_val = float(geo.get('driver_fee', round(delivery_fee_val * 0.8, 2)))
+        delivery_fee_val = _to_non_negative_float(geo.get('delivery_fee'), pricing['default_delivery_fee'])
+        platform_fee_val = _to_non_negative_float(geo.get('platform_fee'), round(delivery_fee_val * 0.2, 2))
+        driver_fee_val = _to_non_negative_float(geo.get('driver_fee'), round(delivery_fee_val - platform_fee_val, 2))
+
+    total_val = round(subtotal_val + tax_val + delivery_fee_val, 2)
 
     order = Order(
         customer_name=data['customer_name'],
@@ -173,15 +239,15 @@ def create_order():
         payment_method=payment_method,
         payment_status=payment_status,
         status='pending',
-        subtotal=float(data.get('subtotal', 0)),
-        tax=float(data.get('tax', 0)),
+        subtotal=subtotal_val,
+        tax=tax_val,
         delivery_fee=delivery_fee_val,
         platform_fee=platform_fee_val,
         driver_fee=driver_fee_val,
-        total=float(data.get('total', 0)),
+        total=total_val,
         latitude=data.get('latitude'),
         longitude=data.get('longitude'),
-        restaurant_id=get_current_restaurant_id(),
+        restaurant_id=restaurant_id,
         estimated_delivery=datetime.now(timezone.utc) + timedelta(minutes=30),
     )
 
@@ -190,17 +256,10 @@ def create_order():
         order.latitude = geo.get('lat')
         order.longitude = geo.get('lng')
 
-    # Recalculate total if subtotal/tax provided
-    try:
-        order.total = float(order.subtotal or 0) + float(order.tax or 0) + float(order.delivery_fee or 0)
-    except Exception:
-        order.total = float(data.get('total', 0))
-
     db.session.add(order)
     db.session.flush()  # Get the ID before adding items
 
     # Add order items
-    items = data.get('items', [])
     for item_data in items:
         item = OrderItem(
             order_id=order.id,
