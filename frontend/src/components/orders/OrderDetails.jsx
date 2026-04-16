@@ -26,6 +26,7 @@ import {
 import { ArrowLeft, Edit, User, Phone, MapPin, Clock3, Truck, Receipt } from 'lucide-react';
 import { getOrderById, updateOrderStatus } from '../../services/api';
 import { formatDate, formatDurationHMS, getRemainingSeconds } from '../../utils/dateUtils';
+import { formatCurrencyGBP } from '../../utils/currency';
 
 const OrderDetails = () => {
   const { orderId } = useParams();
@@ -285,7 +286,7 @@ const OrderDetails = () => {
                       secondary={item.notes ? `Note: ${item.notes}` : null}
                     />
                     <Typography variant="body1" fontWeight="bold">
-                      ${(item.price * item.quantity).toFixed(2)}
+                      {formatCurrencyGBP(item.price * item.quantity)}
                     </Typography>
                   </ListItem>
                 ))}
@@ -296,15 +297,15 @@ const OrderDetails = () => {
                 <Divider sx={{ mb: 2 }} />
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
                   <Typography variant="body2">Subtotal</Typography>
-                  <Typography variant="body2">${order.subtotal.toFixed(2)}</Typography>
+                  <Typography variant="body2">{formatCurrencyGBP(order.subtotal)}</Typography>
                 </Box>
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
                   <Typography variant="body2">Tax</Typography>
-                  <Typography variant="body2">${order.tax.toFixed(2)}</Typography>
+                  <Typography variant="body2">{formatCurrencyGBP(order.tax)}</Typography>
                 </Box>
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
                   <Typography variant="body2">Delivery Fee</Typography>
-                  <Typography variant="body2">${order.delivery_fee.toFixed(2)}</Typography>
+                  <Typography variant="body2">{formatCurrencyGBP(order.delivery_fee)}</Typography>
                 </Box>
                 <Divider sx={{ mb: 2 }} />
                 <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
@@ -312,7 +313,7 @@ const OrderDetails = () => {
                     Total
                   </Typography>
                   <Typography variant="h6" fontWeight="bold">
-                    ${order.total.toFixed(2)}
+                    {formatCurrencyGBP(order.total)}
                   </Typography>
                 </Box>
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 1 }}>

@@ -18,6 +18,7 @@ import { MapContainer, Marker, TileLayer } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 import { createOrder, geocodeAddress } from '../../services/api';
+import { formatCurrencyGBP } from '../../utils/currency';
 
 const pinIcon = L.divIcon({
   html: '<div style="width:14px;height:14px;border-radius:50%;background:#1976d2;border:2px solid #fff;box-shadow:0 0 0 2px #1976d2"></div>',
@@ -221,7 +222,7 @@ const CreateOrder = () => {
                     </Box>
                     <Typography variant="body2">Distance: {geocodingResult.distance_km ?? '-'} km</Typography>
                     <Typography variant="body2">Estimated time: ~{geocodingResult.eta_minutes ?? '-'} min</Typography>
-                    <Typography variant="body2" sx={{ mb: 2 }}>Delivery fee: £{geocodingResult.delivery_fee ?? 4.99}</Typography>
+                    <Typography variant="body2" sx={{ mb: 2 }}>Delivery fee: {formatCurrencyGBP(geocodingResult.delivery_fee ?? 4.99)}</Typography>
 
                     <Box sx={{ height: 200, borderRadius: 2, overflow: 'hidden', mb: 2 }}>
                       <MapContainer
@@ -271,18 +272,18 @@ const CreateOrder = () => {
                 <Grid container spacing={2} alignItems="center">
                   <Grid item xs={12} sm={5}><TextField fullWidth required label="Item Name" value={item.name} onChange={(e) => handleItemChange(index, 'name', e.target.value)} /></Grid>
                   <Grid item xs={6} sm={3}><TextField fullWidth required type="number" label="Quantity" value={item.quantity} onChange={(e) => handleItemChange(index, 'quantity', parseInt(e.target.value, 10) || 1)} inputProps={{ min: 1 }} /></Grid>
-                  <Grid item xs={6} sm={3}><TextField fullWidth required type="number" label="Price" value={item.price} onChange={(e) => handleItemChange(index, 'price', parseFloat(e.target.value) || 0)} inputProps={{ min: 0, step: 0.01 }} /></Grid>
+                  <Grid item xs={6} sm={3}><TextField fullWidth required type="number" label="Price (£)" value={item.price} onChange={(e) => handleItemChange(index, 'price', parseFloat(e.target.value) || 0)} inputProps={{ min: 0, step: 0.01 }} /></Grid>
                   <Grid item xs={12} sm={1}><IconButton onClick={() => removeItem(index)} disabled={items.length === 1}><Trash2 size={16} /></IconButton></Grid>
                 </Grid>
               </Box>
             ))}
 
             <Box sx={{ mt: 3, p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}><Typography>Subtotal</Typography><Typography>${totals.subtotal}</Typography></Box>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}><Typography>Tax (8%)</Typography><Typography>${totals.tax}</Typography></Box>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}><Typography>Delivery Fee</Typography><Typography>${totals.deliveryFee}</Typography></Box>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}><Typography>Subtotal</Typography><Typography>{formatCurrencyGBP(totals.subtotal)}</Typography></Box>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}><Typography>Tax (8%)</Typography><Typography>{formatCurrencyGBP(totals.tax)}</Typography></Box>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}><Typography>Delivery Fee</Typography><Typography>{formatCurrencyGBP(totals.deliveryFee)}</Typography></Box>
               <Divider sx={{ my: 1 }} />
-              <Box sx={{ display: 'flex', justifyContent: 'space-between' }}><Typography variant="h6" fontWeight="bold">Total</Typography><Typography variant="h6" fontWeight="bold">${totals.total}</Typography></Box>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between' }}><Typography variant="h6" fontWeight="bold">Total</Typography><Typography variant="h6" fontWeight="bold">{formatCurrencyGBP(totals.total)}</Typography></Box>
             </Box>
           </Paper>
 

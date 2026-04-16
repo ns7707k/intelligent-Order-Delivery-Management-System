@@ -24,6 +24,7 @@ import {
 import { ArrowLeft, Edit, Phone, Mail, Truck, Star } from 'lucide-react';
 import { formatDate } from '../../utils/dateUtils';
 import { getDriverById } from '../../services/api';
+import { formatCurrencyGBP } from '../../utils/currency';
 
 const DriverDetails = () => {
   const { driverId } = useParams();
@@ -308,7 +309,7 @@ const DriverDetails = () => {
                     }}
                     secondaryAction={
                       <Typography variant="body1" fontWeight="bold">
-                        ${parseFloat(delivery.amount || 0).toFixed(2)}
+                        {formatCurrencyGBP(delivery.amount || 0)}
                       </Typography>
                     }
                   >

@@ -16,7 +16,7 @@ import {
   Alert,
 } from '@mui/material';
 import {
-  AttachMoney as AttachMoneyIcon,
+  CurrencyPound as CurrencyPoundIcon,
   Restaurant as RestaurantIcon,
   TrendingUp as TrendingUpIcon,
   AccessTime as AccessTimeIcon,
@@ -25,6 +25,7 @@ import {
 } from '@mui/icons-material';
 import { TrendingUp } from 'lucide-react';
 import { getAnalyticsSummary } from '../../services/api';
+import { formatCurrencyGBP } from '../../utils/currency';
 
 const Analytics = () => {
   const [timeRange, setTimeRange] = useState('7days');
@@ -114,13 +115,13 @@ const Analytics = () => {
               <Card variant="outlined">
                 <CardContent>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                    <AttachMoneyIcon color="success" />
+                    <CurrencyPoundIcon color="success" />
                     <Typography color="text.secondary" variant="body2">
                       Total Revenue
                     </Typography>
                   </Box>
                   <Typography variant="h4" fontWeight="bold">
-                    ${analytics.revenue.total.toLocaleString()}
+                    {formatCurrencyGBP(analytics.revenue.total)}
                   </Typography>
                   <Typography variant="caption" color="success.main">
                     ↑ {analytics.revenue.growth}% from last period
@@ -150,13 +151,13 @@ const Analytics = () => {
               <Card variant="outlined">
                 <CardContent>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                    <AttachMoneyIcon color="info" />
+                    <CurrencyPoundIcon color="info" />
                     <Typography color="text.secondary" variant="body2">
                       Avg Order Value
                     </Typography>
                   </Box>
                   <Typography variant="h4" fontWeight="bold">
-                    ${analytics.revenue.avgOrderValue}
+                    {formatCurrencyGBP(analytics.revenue.avgOrderValue)}
                   </Typography>
                   <Typography variant="caption" color="text.secondary">
                     per order
@@ -334,7 +335,7 @@ const Analytics = () => {
                     </Typography>
                   </Box>
                   <Typography variant="h6" fontWeight="bold" color="success.main">
-                    ${item.revenue.toFixed(2)}
+                    {formatCurrencyGBP(item.revenue)}
                   </Typography>
                 </Box>
               ))}

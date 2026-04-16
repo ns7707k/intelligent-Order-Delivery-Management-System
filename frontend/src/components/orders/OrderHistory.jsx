@@ -24,6 +24,7 @@ import {
 import { Plus, Search, Eye, Filter, RefreshCcw } from 'lucide-react';
 import { formatDate } from '../../utils/dateUtils';
 import { getOrders } from '../../services/api';
+import { formatCurrencyGBP } from '../../utils/currency';
 
 const OrderHistory = () => {
   const navigate = useNavigate();
@@ -204,7 +205,7 @@ const OrderHistory = () => {
                       <TableCell>{order.customer_name}</TableCell>
                       <TableCell>{order.delivery_address}</TableCell>
                       <TableCell>{order.items?.length || order.items_count || 0} items</TableCell>
-                      <TableCell>${parseFloat(order.total || 0).toFixed(2)}</TableCell>
+                      <TableCell>{formatCurrencyGBP(order.total || 0)}</TableCell>
                       <TableCell>
                         <Chip
                           label={order.status.toUpperCase()}

@@ -16,6 +16,7 @@ import {
 } from '@mui/material';
 import { MapContainer, Marker, Polyline, TileLayer } from 'react-leaflet';
 import L from 'leaflet';
+import { formatCurrencyGBP } from '../../utils/currency';
 import api from '../../services/api';
 
 const createPointIcon = (bg, text) => L.divIcon({
@@ -29,20 +30,21 @@ const pickupIcon = createPointIcon('#2563EB', 'P');
 const dropoffIcon = createPointIcon('#10B981', 'D');
 
 function DriverDeliveryView() {
-    const [collecting, setCollecting] = useState(false);
+  const [collecting, setCollecting] = useState(false);
 
-    const handleCollectCash = async () => {
-      setCollecting(true);
-      setError('');
-      try {
-        await api.collectCash(orderId);
-        await load();
-      } catch (err) {
-        setError(err?.response?.data?.error || 'Unable to collect cash');
-      } finally {
-        setCollecting(false);
-      }
-    };
+  const handleCollectCash = async () => {
+    setCollecting(true);
+    setError('');
+    try {
+      await api.collectCash(orderId);
+      await load();
+    } catch (err) {
+      setError(err?.response?.data?.error || 'Unable to collect cash');
+    } finally {
+      setCollecting(false);
+    }
+  };
+
   const { orderId } = useParams();
   const [order, setOrder] = useState(null);
   const [error, setError] = useState('');
@@ -100,7 +102,7 @@ function DriverDeliveryView() {
             <CardContent sx={{ p: 0 }}>
               <Box sx={{ px: 2, py: 1.5, borderBottom: '1px solid #E2E8F0', bgcolor: '#F8FAFC' }}>
                 <Typography sx={{ fontWeight: 700, color: '#0F172A' }}>Route Map</Typography>
-                <Typography variant="body2" color="text.secondary">P = Pickup · D = Delivery</Typography>
+                <Typography variant="body2" color="text.secondary">P = Pickup | D = Delivery</Typography>
               </Box>
               <Box sx={{ height: 400 }}>
                 <MapContainer key={`${mapCenter[0]}-${mapCenter[1]}`} center={mapCenter} zoom={12} style={{ width: '100%', height: '100%' }}>
@@ -124,7 +126,7 @@ function DriverDeliveryView() {
                 <Typography><strong>Pickup:</strong> {order?.pickup_address || 'Restaurant pickup'}</Typography>
                 <Typography><strong>Dropoff:</strong> {order?.delivery_address}</Typography>
                 <Typography><strong>ETA:</strong> {order?.estimated_delivery_minutes || '-'} min</Typography>
-                <Typography><strong>Earnings:</strong> £{order?.delivery_fee || 4.99}</Typography>
+                <Typography><strong>Earnings:</strong> {formatCurrencyGBP(order?.delivery_fee || 4.99)}</Typography>
                 <Typography><strong>Payment Method:</strong> {order?.payment_method}</Typography>
                 <Typography><strong>Payment Status:</strong> {order?.payment_status}</Typography>
                 <Box sx={{ mt: 1.2 }}>

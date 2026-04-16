@@ -573,7 +573,7 @@ const Settings = () => {
                   <TextField
                     fullWidth
                     type="number"
-                    label="Default Delivery Fee ($)"
+                    label="Default Delivery Fee (£)"
                     value={settings.default_delivery_fee}
                     onChange={(e) => handleSettingsChange('default_delivery_fee', parseFloat(e.target.value))}
                     inputProps={{ min: 0, step: 0.01 }}

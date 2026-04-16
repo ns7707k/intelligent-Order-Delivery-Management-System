@@ -13,6 +13,7 @@ import {
 } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import api from '../../services/api';
+import { formatCurrencyGBP } from '../../utils/currency';
 
 function DriverHistory() {
   const [orders, setOrders] = useState([]);
@@ -61,7 +62,7 @@ function DriverHistory() {
           </AccordionSummary>
           <AccordionDetails>
             <Typography>Status: {o.status}</Typography>
-            <Typography>Earnings: £{o.delivery_fee}</Typography>
+            <Typography>Earnings: {formatCurrencyGBP(o.delivery_fee)}</Typography>
             <Typography>Items: {(o.items || []).map((i) => `${i.quantity}x ${i.name}`).join(', ') || 'None'}</Typography>
           </AccordionDetails>
         </Accordion>

@@ -24,6 +24,7 @@ import { useNavigate } from 'react-router-dom';
 import { MapContainer, Marker, Polyline, TileLayer } from 'react-leaflet';
 import L from 'leaflet';
 import api from '../../services/api';
+import { formatCurrencyGBP } from '../../utils/currency';
 
 const createPointIcon = (bg, text) => L.divIcon({
   className: '',
@@ -125,7 +126,7 @@ function DriverDashboard() {
 
   const stats = useMemo(() => ({
     deliveriesToday: driver?.total_deliveries || 0,
-    earningsToday: ((driver?.total_deliveries || 0) * 4.99).toFixed(2),
+    earningsToday: (driver?.total_deliveries || 0) * 4.99,
     hoursActive: driver?.status === 'offline' ? '0.0' : '8.0',
   }), [driver]);
 
@@ -282,7 +283,7 @@ function DriverDashboard() {
                     <Typography variant="body2" color="text.secondary"><strong>Pickup:</strong> {activeOrder.pickup_address || 'Restaurant pickup point'}</Typography>
                     <Typography variant="body2" color="text.secondary"><strong>Dropoff:</strong> {activeOrder.delivery_address}</Typography>
                     <Typography variant="body2" color="text.secondary"><strong>ETA:</strong> {activeOrder.estimated_delivery_minutes || '-'} min</Typography>
-                    <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}><strong>Earnings:</strong> £{activeOrder.delivery_fee || 4.99}</Typography>
+                    <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}><strong>Earnings:</strong> {formatCurrencyGBP(activeOrder.delivery_fee || 4.99)}</Typography>
 
                     <Grid container spacing={1}>
                       <Grid item xs={6}>
@@ -306,7 +307,7 @@ function DriverDashboard() {
               <CardContent>
                 <Typography variant="subtitle2" color="text.secondary">Today</Typography>
                 <Typography>Deliveries: {stats.deliveriesToday}</Typography>
-                <Typography>Earnings: £{stats.earningsToday}</Typography>
+                <Typography>Earnings: {formatCurrencyGBP(stats.earningsToday)}</Typography>
                 <Typography>Hours active: {stats.hoursActive}</Typography>
               </CardContent>
             </Card>
