@@ -17,7 +17,7 @@ import { ArrowLeft, Plus, Trash2, MapPin } from 'lucide-react';
 import { MapContainer, Marker, TileLayer } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
-import { createOrder } from '../../services/api';
+import { createOrder, geocodeAddress } from '../../services/api';
 
 const pinIcon = L.divIcon({
   html: '<div style="width:14px;height:14px;border-radius:50%;background:#1976d2;border:2px solid #fff;box-shadow:0 0 0 2px #1976d2"></div>',
@@ -65,12 +65,11 @@ const CreateOrder = () => {
       setGeocodingLoading(true);
       setGeocodingError(null);
       try {
-        const res = await fetch(`/api/geocode?address=${encodeURIComponent(formData.delivery_address)}`);
-        if (!res.ok) {
+        const geo = await geocodeAddress(formData.delivery_address);
+        if (geo?.lat == null || geo?.lng == null) {
           setGeocodingResult(null);
           setGeocodingError('Address not found — please check and try again.');
         } else {
-          const geo = await res.json();
           setGeocodingResult(geo);
         }
       } catch {

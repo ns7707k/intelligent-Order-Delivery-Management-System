@@ -17,10 +17,25 @@ from app.utils.auth import get_current_restaurant_id, require_role
 settings_bp = Blueprint('settings', __name__)
 
 
+def _get_setting_for_restaurant(key, restaurant_id):
+    """
+    Return restaurant-scoped setting, with backward compatibility for legacy
+    global rows (restaurant_id=NULL) created by older seed scripts.
+    """
+    setting = Settings.query.filter_by(key=key, restaurant_id=restaurant_id).first()
+    if setting:
+        return setting
+
+    legacy_setting = Settings.query.filter_by(key=key, restaurant_id=None).first()
+    if legacy_setting and restaurant_id is not None:
+        legacy_setting.restaurant_id = restaurant_id
+    return legacy_setting
+
+
 def _ensure_defaults(restaurant_id):
     """Ensure all default settings exist in the database."""
     for key, (value, value_type, category) in DEFAULT_SETTINGS.items():
-        existing = Settings.query.filter_by(key=key, restaurant_id=restaurant_id).first()
+        existing = _get_setting_for_restaurant(key, restaurant_id)
         if not existing:
             setting = Settings(
                 key=key,
@@ -68,7 +83,7 @@ def update_settings():
 
     updated = []
     for key, value in data.items():
-        setting = Settings.query.filter_by(key=key, restaurant_id=restaurant_id).first()
+        setting = _get_setting_for_restaurant(key, restaurant_id)
         if setting:
             setting.value = str(value)
             updated.append(key)
@@ -108,7 +123,7 @@ def update_settings():
 def get_setting(key):
     """Get a single setting by key."""
     restaurant_id = get_current_restaurant_id()
-    setting = Settings.query.filter_by(key=key, restaurant_id=restaurant_id).first()
+    setting = _get_setting_for_restaurant(key, restaurant_id)
     if not setting:
         # Check defaults
         if key in DEFAULT_SETTINGS:

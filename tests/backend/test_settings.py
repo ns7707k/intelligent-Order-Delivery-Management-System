@@ -1,3 +1,4 @@
+from app import db
 from app.models.restaurant import Restaurant
 from app.models.settings import Settings
 
@@ -65,3 +66,50 @@ def test_get_single_setting_existing(client, auth_headers):
 def test_get_single_setting_not_found(client, auth_headers):
     response = client.get("/api/settings/does_not_exist", headers=auth_headers)
     assert response.status_code == 404
+
+
+def test_get_settings_migrates_legacy_global_rows(client, app, auth_headers):
+    with app.app_context():
+        legacy = Settings(
+            key="default_delivery_fee",
+            value="5.25",
+            value_type="number",
+            category="order",
+            restaurant_id=None,
+        )
+        db.session.add(legacy)
+        db.session.commit()
+
+    response = client.get("/api/settings", headers=auth_headers)
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["default_delivery_fee"] == 5.25
+
+    with app.app_context():
+        setting = Settings.query.filter_by(key="default_delivery_fee", restaurant_id=1).first()
+        assert setting is not None
+
+
+def test_update_settings_uses_legacy_global_rows(client, app, auth_headers):
+    with app.app_context():
+        legacy = Settings(
+            key="tax_rate",
+            value="8.0",
+            value_type="number",
+            category="order",
+            restaurant_id=None,
+        )
+        db.session.add(legacy)
+        db.session.commit()
+
+    response = client.put(
+        "/api/settings",
+        headers=auth_headers,
+        json={"tax_rate": 9.5},
+    )
+    assert response.status_code == 200
+
+    with app.app_context():
+        setting = Settings.query.filter_by(key="tax_rate", restaurant_id=1).first()
+        assert setting is not None
+        assert setting.value == "9.5"
