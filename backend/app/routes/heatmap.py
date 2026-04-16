@@ -13,7 +13,7 @@ from flask import Blueprint, request, jsonify
 from app import db
 from app.models.order import Order
 from app.utils.auth import get_current_restaurant_id, require_role
-from sqlalchemy import func, text
+from sqlalchemy import func
 from datetime import datetime, timezone, timedelta
 
 heatmap_bp = Blueprint('heatmap', __name__)
@@ -66,9 +66,13 @@ def get_predictive_heatmap():
     # SQL aggregation: cluster orders by grid cells (~0.001 degree ≈ 100m)
     grid_size = 0.005  # ~500m grid cells for meaningful clusters
 
+    # PostgreSQL supports round(double precision) but not round(double precision, int).
+    lat_grid = func.round(Order.latitude / grid_size)
+    lng_grid = func.round(Order.longitude / grid_size)
+
     clusters = db.session.query(
-        func.round(Order.latitude / grid_size, 0).label('lat_grid'),
-        func.round(Order.longitude / grid_size, 0).label('lng_grid'),
+        lat_grid.label('lat_grid'),
+        lng_grid.label('lng_grid'),
         func.avg(Order.latitude).label('avg_lat'),
         func.avg(Order.longitude).label('avg_lng'),
         func.count(Order.id).label('order_count')
@@ -79,8 +83,8 @@ def get_predictive_heatmap():
         Order.status.in_(['delivered', 'ready', 'preparing', 'pending']),
         Order.created_at >= cutoff_date
     ).group_by(
-        func.round(Order.latitude / grid_size, 0),
-        func.round(Order.longitude / grid_size, 0)
+        lat_grid,
+        lng_grid
     ).having(
         func.count(Order.id) >= 1
     ).all()
