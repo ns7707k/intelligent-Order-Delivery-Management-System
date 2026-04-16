@@ -329,7 +329,7 @@ const Settings = () => {
 
         <Paper>
           <Tabs value={tabValue} onChange={(e, v) => setTabValue(v)}>
-            <Tab label="=�Ŭ Restaurant" />
+            <Tab label="Restaurant" />
             <Tab label="Voice System" />
             <Tab label="Map & Routes" />
             <Tab label="Orders" />
@@ -403,8 +403,8 @@ const Settings = () => {
                     Restaurant Location (GPS)
                   </Typography>
                   <Typography variant="caption" color="text.secondary">
-                    This is the depot for VRP G�� all delivery/return ETAs are calculated from here.
-                    Get coordinates from Google Maps (right-click G�� "What's here?").
+                    This is the depot for VRP - all delivery/return ETAs are calculated from here.
+                    Get coordinates from Google Maps (right-click -> "What's here?").
                   </Typography>
                 </Grid>
                 <Grid item xs={12} md={6}>
@@ -589,7 +589,7 @@ const Settings = () => {
                   <TextField
                     fullWidth
                     type="number"
-                    label="Default Delivery Fee (-�)"
+                    label="Default Delivery Fee (GBP)"
                     value={settings.default_delivery_fee}
                     onChange={(e) => handleSettingsChange('default_delivery_fee', parseFloat(e.target.value))}
                     inputProps={{ min: 0, step: 0.01 }}
