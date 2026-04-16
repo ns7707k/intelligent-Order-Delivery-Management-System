@@ -26,6 +26,35 @@ const pinIcon = L.divIcon({
   iconAnchor: [7, 7],
 });
 
+const buildAddressCandidates = (address) => {
+  const normalized = (address || '').trim().replace(/\s+/g, ' ');
+  if (!normalized) return [];
+
+  const candidates = [normalized];
+  const parts = normalized.split(',').map((part) => part.trim()).filter(Boolean);
+
+  if (parts.length >= 3) {
+    const withoutShortContext = parts.filter((part, idx) => {
+      if (idx === 0 || idx === parts.length - 1) return true;
+      return /\d/.test(part) || part.split(/\s+/).length > 3;
+    }).join(', ');
+
+    if (withoutShortContext && withoutShortContext !== normalized) {
+      candidates.push(withoutShortContext);
+    }
+
+    candidates.push([parts[0], parts[parts.length - 2], parts[parts.length - 1]].join(', '));
+    candidates.push([parts[0], parts[parts.length - 2]].join(', '));
+  }
+
+  const postcodeMatch = normalized.toUpperCase().match(/\b([A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2})\b/);
+  if (postcodeMatch) {
+    candidates.push(`${postcodeMatch[1]}, United Kingdom`);
+  }
+
+  return [...new Set(candidates.filter(Boolean))];
+};
+
 const CreateOrder = () => {
   const navigate = useNavigate();
   const [formData, setFormData] = useState({
@@ -65,12 +94,26 @@ const CreateOrder = () => {
       setGeocodingLoading(true);
       setGeocodingError(null);
       try {
-        const geo = await geocodeAddress(formData.delivery_address);
-        if (geo?.lat == null || geo?.lng == null) {
+        const candidates = buildAddressCandidates(formData.delivery_address);
+        let resolvedGeo = null;
+
+        for (const candidate of candidates) {
+          try {
+            const geo = await geocodeAddress(candidate);
+            if (geo?.lat != null && geo?.lng != null) {
+              resolvedGeo = geo;
+              break;
+            }
+          } catch {
+            // Try next candidate variant
+          }
+        }
+
+        if (!resolvedGeo) {
           setGeocodingResult(null);
           setGeocodingError('Address not found — please check and try again.');
         } else {
-          setGeocodingResult(geo);
+          setGeocodingResult(resolvedGeo);
         }
       } catch {
         setGeocodingResult(null);
