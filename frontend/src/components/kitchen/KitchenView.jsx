@@ -19,8 +19,9 @@ import AddIcon from '@mui/icons-material/Add';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ReplayIcon from '@mui/icons-material/Replay';
 import { useOrders } from '../../contexts/OrderContext';
-import { getRestaurant, optimizeRoute } from '../../services/api';
+import { getRestaurant, getSettings, optimizeRoute } from '../../services/api';
 import OrderCard from './OrderCard';
+import { mergeRuntimeSettingsIntoCache, readCachedRuntimeSettings } from '../../utils/runtimeSettings';
 
 /**
  * Kitchen View - Voice-Activated Kitchen Display System
@@ -29,6 +30,7 @@ import OrderCard from './OrderCard';
 const KitchenView = () => {
   const navigate = useNavigate();
   const { orders, updateOrder, getPendingOrders, refreshOrders } = useOrders();
+  const [runtimeSettings, setRuntimeSettings] = useState(() => readCachedRuntimeSettings());
   
   const [isListening, setIsListening] = useState(false);
   const [isSupported, setIsSupported] = useState(false);
@@ -43,11 +45,34 @@ const KitchenView = () => {
   const recognitionRef = useRef(null);
   const synthRef = useRef(window.speechSynthesis);
   const processVoiceCommandRef = useRef(null);
+  const autoStartedRef = useRef(false);
 
   // Check browser support
   useEffect(() => {
     const supported = 'webkitSpeechRecognition' in window || 'SpeechRecognition' in window;
     setIsSupported(supported);
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+
+    const hydrateRuntimeSettings = async () => {
+      try {
+        const settingsData = await getSettings();
+        if (!active || !settingsData || typeof settingsData !== 'object') {
+          return;
+        }
+        setRuntimeSettings(mergeRuntimeSettingsIntoCache(settingsData));
+      } catch {
+        // Keep cached defaults when settings endpoint fails.
+      }
+    };
+
+    hydrateRuntimeSettings();
+
+    return () => {
+      active = false;
+    };
   }, []);
 
   useEffect(() => {
@@ -72,7 +97,7 @@ const KitchenView = () => {
     }
   };
 
-  // Initialize advanced voice recognition with live transcript
+  // Initialize advanced voice recognition with live transcript.
   useEffect(() => {
     if (!isSupported || !window.webkitSpeechRecognition) return;
 
@@ -90,7 +115,11 @@ const KitchenView = () => {
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const transcript = event.results[i][0].transcript;
         if (event.results[i].isFinal) {
-          finalTranscript += transcript;
+          finalTranscript = transcript;
+          processVoiceCommandRef.current?.(
+            transcript.trim(),
+            Number(event.results[i][0].confidence)
+          );
         } else {
           interimTranscript += transcript;
         }
@@ -98,11 +127,6 @@ const KitchenView = () => {
 
       // Update live transcript
       setLiveTranscript(interimTranscript || finalTranscript);
-
-      // Process final transcript via ref (avoids stale closure)
-      if (finalTranscript) {
-        processVoiceCommandRef.current?.(finalTranscript.trim());
-      }
     };
 
     recognition.onerror = (event) => {
@@ -111,12 +135,17 @@ const KitchenView = () => {
 
     recognitionRef.current = recognition;
 
+    if (runtimeSettings.voice_auto_start && !autoStartedRef.current) {
+      autoStartedRef.current = true;
+      setIsListening(true);
+    }
+
     return () => {
       if (recognitionRef.current) {
         recognitionRef.current.stop();
       }
     };
-  }, [isSupported]);
+  }, [isSupported, runtimeSettings.voice_auto_start]);
 
   // Start/stop listening
   useEffect(() => {
@@ -212,20 +241,67 @@ const KitchenView = () => {
     return normalized;
   };
 
+  const applyOrderStatusUpdate = async (order, nextStatus) => {
+    try {
+      const result = await updateOrder(order.id, nextStatus);
+      await refreshOrders();
+
+      if (result && result.allocation && result.allocation.assigned_driver) {
+        const driverName = result.allocation.assigned_driver.name;
+        const deliveryEta = result.allocation.estimated_delivery_time;
+        const roundTrip = result.allocation.estimated_round_trip;
+        speak(`Order ${order.id} is ready. Driver ${driverName} assigned. Delivery in ${deliveryEta} minutes. Back in ${roundTrip} minutes total.`);
+        showNotification(
+          `Order #${order.id} -> Ready -> Driver ${driverName} (Deliver: ${deliveryEta}min, Round-trip: ${roundTrip}min)`,
+          'success'
+        );
+      } else {
+        speak(`Order ${order.id} updated to ${nextStatus}`);
+        showNotification(`Order #${order.id} updated to ${nextStatus}`, 'success');
+      }
+
+      return true;
+    } catch (error) {
+      console.error('Error updating order:', error);
+      speak('Error updating order');
+      showNotification('Failed to update order', 'error');
+      return false;
+    }
+  };
+
   // Process voice command
-  const processVoiceCommand = (transcript) => {
+  const processVoiceCommand = (transcript, confidenceScore = null) => {
+    const minimumConfidence = Number.isFinite(Number(runtimeSettings.voice_confidence_threshold))
+      ? Math.max(0, Math.min(1, Number(runtimeSettings.voice_confidence_threshold)))
+      : 0.8;
+    const hasConfidenceScore = Number.isFinite(confidenceScore) && confidenceScore > 0;
+
+    if (hasConfidenceScore && confidenceScore < minimumConfidence) {
+      const requiredPct = Math.round(minimumConfidence * 100);
+      const heardPct = Math.round(confidenceScore * 100);
+      showNotification(
+        `Low confidence (${heardPct}%). Minimum required is ${requiredPct}%. Please repeat.`,
+        'warning'
+      );
+      speak('I am not confident enough. Please repeat your command.');
+      return;
+    }
+
     // Normalize number words/homophones BEFORE matching
     const normalizedTranscript = normalizeNumbers(transcript);
     const lowerTranscript = normalizedTranscript.toLowerCase();
     
     // Add to history (show both original and normalized)
     setTranscriptHistory(prev => [...prev.slice(-4), {
-      text: transcript + (normalizedTranscript !== transcript.toLowerCase() ? ` → "${normalizedTranscript}"` : ''),
+      text:
+        transcript
+        + (normalizedTranscript !== transcript.toLowerCase() ? ` -> "${normalizedTranscript}"` : '')
+        + (hasConfidenceScore ? ` (${Math.round(confidenceScore * 100)}%)` : ''),
       timestamp: new Date(),
     }]);
 
     // Check if waiting for confirmation
-    if (waitingForConfirmation && pendingCommand) {
+    if (runtimeSettings.voice_confirmation_required && waitingForConfirmation && pendingCommand) {
       if (lowerTranscript.includes('confirm') || lowerTranscript.includes('yes')) {
         handleConfirmStatus();
         return;
@@ -273,11 +349,15 @@ const KitchenView = () => {
         newStatus: status,
         originalCommand: transcript 
       };
-      setPendingCommand(cmd);
-      setShowConfirmationUI(true);
-      setWaitingForConfirmation(true);
-      
-      speak(`Did you say order ${orderId} is ${status}? Say confirm or try again.`);
+
+      if (runtimeSettings.voice_confirmation_required) {
+        setPendingCommand(cmd);
+        setShowConfirmationUI(true);
+        setWaitingForConfirmation(true);
+        speak(`Did you say order ${orderId} is ${status}? Say confirm or try again.`);
+      } else {
+        applyOrderStatusUpdate(order, status);
+      }
     } else if (lowerTranscript.length > 3) {
       // Voice heard something but couldn't parse - notify user
       showNotification(`Could not understand: "${transcript}". Say "Order [number] ready"`, 'warning');
@@ -297,33 +377,7 @@ const KitchenView = () => {
   const handleConfirmStatus = async () => {
     if (!pendingCommand) return;
 
-    try {
-      const result = await updateOrder(pendingCommand.order.id, pendingCommand.newStatus);
-      await refreshOrders();
-      
-      // Check if VRP assigned a driver (happens when status -> 'ready')
-      if (result && result.allocation && result.allocation.assigned_driver) {
-        const driverName = result.allocation.assigned_driver.name;
-        const deliveryEta = result.allocation.estimated_delivery_time;
-        const returnEta = result.allocation.estimated_return_time;
-        const roundTrip = result.allocation.estimated_round_trip;
-        speak(`Order ${pendingCommand.order.id} is ready. Driver ${driverName} assigned. Delivery in ${deliveryEta} minutes. Back in ${roundTrip} minutes total.`);
-        showNotification(
-          `Order #${pendingCommand.order.id} → Ready → Driver ${driverName} (Deliver: ${deliveryEta}min, Round-trip: ${roundTrip}min)`,
-          'success'
-        );
-      } else {
-        speak(`Order ${pendingCommand.order.id} updated to ${pendingCommand.newStatus}`);
-        showNotification(
-          `Order #${pendingCommand.order.id} updated to ${pendingCommand.newStatus}`,
-          'success'
-        );
-      }
-    } catch (error) {
-      console.error('Error updating order:', error);
-      speak('Error updating order');
-      showNotification('Failed to update order', 'error');
-    }
+    await applyOrderStatusUpdate(pendingCommand.order, pendingCommand.newStatus);
 
     setShowConfirmationUI(false);
     setPendingCommand(null);
@@ -532,7 +586,7 @@ const KitchenView = () => {
         )}
 
         {/* ─── Confirmation UI ─── */}
-        {showConfirmationUI && pendingCommand && (
+          {runtimeSettings.voice_confirmation_required && showConfirmationUI && pendingCommand && (
           <Paper 
             elevation={0} 
             sx={{ 

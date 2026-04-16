@@ -2,6 +2,7 @@ from datetime import datetime, timedelta, timezone
 
 from app import db
 from app.models.driver import Driver
+from app.models.settings import Settings
 
 
 def _create_driver(client, headers, name="Driver One", status="available"):
@@ -53,6 +54,57 @@ def test_update_driver_status(client, auth_headers):
     )
     assert response.status_code == 200
     assert response.get_json()["status"] == "offline"
+
+
+def test_update_driver_status_respects_max_active_drivers_limit(client, app, auth_headers):
+    _create_driver(client, auth_headers, name="Already Active", status="available")
+    created = _create_driver(client, auth_headers, name="Offline Target", status="offline")
+
+    with app.app_context():
+        db.session.add(Settings(
+            key="max_active_drivers",
+            value="1",
+            value_type="number",
+            category="system",
+            restaurant_id=1,
+        ))
+        db.session.commit()
+
+    response = client.patch(
+        f"/api/drivers/{created['id']}/status",
+        headers=auth_headers,
+        json={"status": "available"},
+    )
+    assert response.status_code == 409
+    assert "Maximum active drivers reached" in response.get_json()["error"]
+
+
+def test_create_driver_respects_max_active_drivers_limit(client, app, auth_headers):
+    _create_driver(client, auth_headers, name="Capacity Reached", status="available")
+
+    with app.app_context():
+        db.session.add(Settings(
+            key="max_active_drivers",
+            value="1",
+            value_type="number",
+            category="system",
+            restaurant_id=1,
+        ))
+        db.session.commit()
+
+    response = client.post(
+        "/api/drivers",
+        headers=auth_headers,
+        json={
+            "name": "Overflow Driver",
+            "phone": "+440000009999",
+            "email": "overflow.driver@odms.test",
+            "vehicle_type": "Car",
+            "status": "available",
+        },
+    )
+    assert response.status_code == 409
+    assert "Maximum active drivers reached" in response.get_json()["error"]
 
 
 def test_invalid_driver_status(client, auth_headers):

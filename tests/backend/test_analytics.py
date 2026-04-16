@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from app import db
 from app.models.driver import Driver
@@ -132,3 +132,50 @@ def test_analytics_respects_enable_analytics_setting(client, app, auth_headers):
     response = client.get("/api/analytics/summary?timeRange=7days", headers=auth_headers)
     assert response.status_code == 403
     assert "disabled" in response.get_json()["error"].lower()
+
+
+def test_analytics_respects_data_retention_days_setting(client, app, auth_headers):
+    now = datetime.now(timezone.utc)
+
+    with app.app_context():
+        db.session.add(Settings(
+            key="data_retention_days",
+            value="1",
+            value_type="number",
+            category="system",
+            restaurant_id=1,
+        ))
+
+        db.session.add_all([
+            Order(
+                customer_name="Recent",
+                customer_phone="+440000000101",
+                delivery_address="Recent Street",
+                status="delivered",
+                subtotal=10.0,
+                tax=1.0,
+                delivery_fee=2.0,
+                total=13.0,
+                restaurant_id=1,
+                created_at=now,
+            ),
+            Order(
+                customer_name="Old",
+                customer_phone="+440000000102",
+                delivery_address="Old Street",
+                status="delivered",
+                subtotal=30.0,
+                tax=3.0,
+                delivery_fee=5.0,
+                total=38.0,
+                restaurant_id=1,
+                created_at=now - timedelta(days=5),
+            ),
+        ])
+        db.session.commit()
+
+    response = client.get("/api/analytics/summary?timeRange=30days", headers=auth_headers)
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["revenue"]["orders"] == 1
+    assert payload["revenue"]["total"] == 13.0

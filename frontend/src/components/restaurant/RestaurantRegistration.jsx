@@ -22,6 +22,8 @@ import L from 'leaflet';
 import { Building2, MapPin, ShieldCheck } from 'lucide-react';
 import { registerRestaurant } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
+import { getMapLayerConfig } from '../../utils/mapLayers';
+import { DEFAULT_MAP_CENTER, readCachedRuntimeSettings } from '../../utils/runtimeSettings';
 
 const steps = ['Account', 'Restaurant Details', 'Review'];
 
@@ -61,6 +63,12 @@ function RestaurantRegistration() {
   });
 
   const [addressSearch, setAddressSearch] = useState('');
+  const [runtimeSettings] = useState(() => readCachedRuntimeSettings());
+
+  const resolvedMapZoom = Number.isFinite(Number(runtimeSettings.default_map_zoom))
+    ? Math.max(1, Math.min(20, Math.round(Number(runtimeSettings.default_map_zoom))))
+    : 13;
+  const mapLayer = getMapLayerConfig(runtimeSettings.map_style);
 
   useEffect(() => {
     const t = setTimeout(async () => {
@@ -266,11 +274,18 @@ function RestaurantRegistration() {
               />
               <Box sx={{ height: 220, borderRadius: 2, overflow: 'hidden', border: '1px solid #ddd' }}>
                 <MapContainer
-                  center={[formData.latitude || 51.5074, formData.longitude || -0.1278]}
-                  zoom={13}
+                  center={[
+                    formData.latitude || DEFAULT_MAP_CENTER[0],
+                    formData.longitude || DEFAULT_MAP_CENTER[1],
+                  ]}
+                  zoom={resolvedMapZoom}
                   style={{ height: '100%', width: '100%' }}
                 >
-                  <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+                  <TileLayer
+                    url={mapLayer.url}
+                    attribution={mapLayer.attribution}
+                    maxZoom={mapLayer.maxZoom}
+                  />
                   <MapPickHandler
                     onPick={(latlng) => setFormData((prev) => ({
                       ...prev,

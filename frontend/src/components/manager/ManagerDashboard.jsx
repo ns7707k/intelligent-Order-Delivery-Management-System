@@ -12,9 +12,14 @@ import {
 } from '@mui/material';
 import { Activity, History, TrendingUp } from 'lucide-react';
 import { useOrders } from '../../contexts/OrderContext';
-import { getHeatmapData, getRestaurant } from '../../services/api';
+import { getHeatmapData, getRestaurant, getSettings } from '../../services/api';
 import HeatmapView from './HeatmapView';
 import OrderStats from './OrderStats';
+import {
+  DEFAULT_MAP_CENTER,
+  mergeRuntimeSettingsIntoCache,
+  readCachedRuntimeSettings,
+} from '../../utils/runtimeSettings';
 
 /**
  * Manager Dashboard - Business Intelligence Interface
@@ -23,7 +28,11 @@ import OrderStats from './OrderStats';
 const ManagerDashboard = () => {
   const location = useLocation();
   const { orders } = useOrders();
-  const [viewMode, setViewMode] = useState('live'); // 'live' or 'predictive'
+  const [runtimeSettings, setRuntimeSettings] = useState(() => readCachedRuntimeSettings());
+  const [viewMode, setViewMode] = useState(() => {
+    const cached = readCachedRuntimeSettings();
+    return cached.show_heatmap_by_default ? 'predictive' : 'live';
+  }); // 'live' or 'predictive'
   const [heatmapData, setHeatmapData] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -54,6 +63,35 @@ const ManagerDashboard = () => {
       setSelectedOrderId(targetOrder);
       setViewMode('live');
     }
+  }, [location.search]);
+
+  useEffect(() => {
+    let active = true;
+
+    const hydrateRuntimeSettings = async () => {
+      try {
+        const settingsData = await getSettings();
+        if (!active || !settingsData || typeof settingsData !== 'object') {
+          return;
+        }
+
+        const merged = mergeRuntimeSettingsIntoCache(settingsData);
+        setRuntimeSettings(merged);
+
+        const hasTargetOrder = new URLSearchParams(location.search).has('order');
+        if (!hasTargetOrder) {
+          setViewMode(merged.show_heatmap_by_default ? 'predictive' : 'live');
+        }
+      } catch {
+        // Keep cached defaults when settings endpoint fails.
+      }
+    };
+
+    hydrateRuntimeSettings();
+
+    return () => {
+      active = false;
+    };
   }, [location.search]);
 
   useEffect(() => {
@@ -121,8 +159,8 @@ const ManagerDashboard = () => {
     } else {
       // Generate predictive hotspots (mock data)
       const hotspots = [];
-      const centerLat = restaurantLocation?.[0] ?? 51.5074;
-      const centerLng = restaurantLocation?.[1] ?? -0.1278;
+      const centerLat = restaurantLocation?.[0] ?? DEFAULT_MAP_CENTER[0];
+      const centerLng = restaurantLocation?.[1] ?? DEFAULT_MAP_CENTER[1];
       
       for (let i = 0; i < 50; i++) {
         hotspots.push({
@@ -320,6 +358,8 @@ const ManagerDashboard = () => {
                 restaurantLocation={restaurantLocation}
                 selectedOrderId={selectedOrderId}
                 onSelectOrder={setSelectedOrderId}
+                mapZoom={runtimeSettings.default_map_zoom}
+                mapStyle={runtimeSettings.map_style}
               />
             </Paper>
           </Box>

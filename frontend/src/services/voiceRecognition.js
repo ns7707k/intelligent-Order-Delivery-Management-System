@@ -3,11 +3,13 @@
  * Handles voice commands for the Kitchen Display System
  */
 
+import { readCachedRuntimeSettings } from '../utils/runtimeSettings';
+
 class VoiceRecognitionService {
   constructor() {
     this.recognition = null;
     this.isListening = false;
-    this.confidenceThreshold = 0.8;
+    this.confidenceThreshold = readCachedRuntimeSettings().voice_confidence_threshold;
     this.synthesis = window.speechSynthesis;
     
     // Check browser support

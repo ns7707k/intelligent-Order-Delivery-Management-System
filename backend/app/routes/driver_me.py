@@ -10,13 +10,44 @@ from app import db
 from app.models.driver import Driver
 from app.models.order import Order
 from app.models.restaurant import Restaurant
-from app.models.settings import Settings
+from app.models.settings import Settings, DEFAULT_SETTINGS
 from app.services.driver_location_simulator import stop_driver_location_simulation
 from app.utils.auth import get_current_driver_id, require_role
 from app.utils.haversine import haversine
 
 
 driver_me_bp = Blueprint('driver_me', __name__)
+
+
+def _to_positive_int(value, fallback=1):
+    try:
+        parsed = int(float(value))
+    except (TypeError, ValueError):
+        return int(fallback)
+    return parsed if parsed > 0 else int(fallback)
+
+
+def _max_active_drivers_limit(restaurant_id):
+    fallback = _to_positive_int(DEFAULT_SETTINGS['max_active_drivers'][0], fallback=20)
+    if restaurant_id is None:
+        return fallback
+
+    configured = Settings.get_typed_for_restaurant(
+        'max_active_drivers',
+        restaurant_id,
+        fallback=fallback,
+    )
+    return _to_positive_int(configured, fallback=fallback)
+
+
+def _active_driver_count(restaurant_id):
+    if restaurant_id is None:
+        return 0
+
+    return Driver.query.filter(
+        Driver.restaurant_id == restaurant_id,
+        Driver.status != 'offline',
+    ).count()
 
 
 def _release_driver_to_available(app, driver_id):
@@ -125,6 +156,15 @@ def update_my_status():
     if status == 'available':
         if driver.current_latitude is None or driver.current_longitude is None:
             return jsonify({'error': 'You must share your location before going online.'}), 400
+
+        if driver.status != 'available':
+            max_active = _max_active_drivers_limit(driver.restaurant_id)
+            active_now = _active_driver_count(driver.restaurant_id)
+            if active_now >= max_active:
+                return jsonify({
+                    'error': f'Maximum active drivers reached ({max_active}).',
+                    'max_active_drivers': max_active,
+                }), 409
 
     driver.status = status
     if status == 'offline':

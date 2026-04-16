@@ -45,16 +45,36 @@ def _analytics_enabled(restaurant_id):
     return bool(value)
 
 
+def _to_positive_int(value, fallback=1):
+    try:
+        parsed = int(float(value))
+    except (TypeError, ValueError):
+        return int(fallback)
+    return parsed if parsed > 0 else int(fallback)
+
+
+def _retention_start(restaurant_id):
+    fallback_days = _to_positive_int(DEFAULT_SETTINGS['data_retention_days'][0], fallback=90)
+    configured_days = Settings.get_typed_for_restaurant(
+        'data_retention_days',
+        restaurant_id,
+        fallback=fallback_days,
+    )
+    retention_days = _to_positive_int(configured_days, fallback=fallback_days)
+    return datetime.now(timezone.utc) - timedelta(days=retention_days)
+
+
 @analytics_bp.route('/summary', methods=['GET'])
 @require_role('restaurant_admin')
 def get_summary():
     """Get complete analytics summary matching the frontend Analytics component."""
     time_range = request.args.get('timeRange', '7days')
-    start_date = _get_date_range(time_range)
+    requested_start = _get_date_range(time_range)
 
     restaurant_id = get_current_restaurant_id()
     if not _analytics_enabled(restaurant_id):
         return jsonify({'error': 'Analytics is disabled in settings'}), 403
+    start_date = max(requested_start, _retention_start(restaurant_id))
 
     # Revenue metrics
     revenue_query = db.session.query(
@@ -187,10 +207,11 @@ def get_summary():
 def get_order_analytics():
     """Get detailed order performance metrics."""
     time_range = request.args.get('timeRange', '7days')
-    start_date = _get_date_range(time_range)
+    requested_start = _get_date_range(time_range)
     restaurant_id = get_current_restaurant_id()
     if not _analytics_enabled(restaurant_id):
         return jsonify({'error': 'Analytics is disabled in settings'}), 403
+    start_date = max(requested_start, _retention_start(restaurant_id))
     total = Order.query.filter(
         Order.restaurant_id == restaurant_id,
         Order.created_at >= start_date,
@@ -239,7 +260,8 @@ def get_top_items():
     if not _analytics_enabled(restaurant_id):
         return jsonify({'error': 'Analytics is disabled in settings'}), 403
     time_range = request.args.get('timeRange', '7days')
-    start_date = _get_date_range(time_range)
+    requested_start = _get_date_range(time_range)
+    start_date = max(requested_start, _retention_start(restaurant_id))
     limit = request.args.get('limit', 10, type=int)
 
     items = db.session.query(
@@ -276,7 +298,8 @@ def get_hourly_distribution():
     if not _analytics_enabled(restaurant_id):
         return jsonify({'error': 'Analytics is disabled in settings'}), 403
     time_range = request.args.get('timeRange', '7days')
-    start_date = _get_date_range(time_range)
+    requested_start = _get_date_range(time_range)
+    start_date = max(requested_start, _retention_start(restaurant_id))
 
     hourly = db.session.query(
         extract('hour', Order.created_at).label('hour'),

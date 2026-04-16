@@ -16,12 +16,49 @@ from app import db
 from app.models.driver import Driver
 from app.models.order import Order
 from app.models.route import Route
+from app.models.settings import Settings, DEFAULT_SETTINGS
 from app.models.user import User
 from app.services.driver_location_simulator import stop_driver_location_simulation
 from app.utils.auth import get_current_restaurant_id, require_role
 from datetime import datetime, timezone
 
 drivers_bp = Blueprint('drivers', __name__)
+
+
+def _to_positive_int(value, fallback=1):
+    try:
+        parsed = int(float(value))
+    except (TypeError, ValueError):
+        return int(fallback)
+    return parsed if parsed > 0 else int(fallback)
+
+
+def _max_active_drivers_limit(restaurant_id):
+    fallback = _to_positive_int(DEFAULT_SETTINGS['max_active_drivers'][0], fallback=20)
+    if restaurant_id is None:
+        return fallback
+
+    configured = Settings.get_typed_for_restaurant(
+        'max_active_drivers',
+        restaurant_id,
+        fallback=fallback,
+    )
+    return _to_positive_int(configured, fallback=fallback)
+
+
+def _active_driver_count(restaurant_id, exclude_driver_id=None):
+    if restaurant_id is None:
+        return 0
+
+    query = Driver.query.filter(
+        Driver.restaurant_id == restaurant_id,
+        Driver.status != 'offline',
+    )
+
+    if exclude_driver_id:
+        query = query.filter(Driver.id != exclude_driver_id)
+
+    return query.count()
 
 
 def _heal_stale_driver_states():
@@ -138,6 +175,11 @@ def create_driver():
     count = Driver.query.count()
     driver_id = data.get('id', f'DRV{str(count + 1).zfill(3)}')
 
+    requested_status = data.get('status', 'available')
+    valid_statuses = ['available', 'on_delivery', 'returning', 'offline']
+    if requested_status not in valid_statuses:
+        return jsonify({'error': f'Invalid status. Must be one of: {", ".join(valid_statuses)}'}), 400
+
     # Ensure unique ID
     while Driver.query.get(driver_id):
         count += 1
@@ -159,7 +201,7 @@ def create_driver():
         owner_type=data.get('owner_type', 'restaurant'),
         restaurant_id=data.get('restaurant_id', rest_id),
         is_platform_driver=bool(data.get('is_platform_driver', False)),
-        status=data.get('status', 'available'),
+        status=requested_status,
         current_latitude=data.get('current_latitude'),
         current_longitude=data.get('current_longitude'),
     )
@@ -171,6 +213,15 @@ def create_driver():
     else:
         driver.owner_type = 'restaurant'
         driver.is_platform_driver = False
+
+    if driver.status != 'offline' and driver.restaurant_id is not None:
+        max_active = _max_active_drivers_limit(driver.restaurant_id)
+        active_now = _active_driver_count(driver.restaurant_id)
+        if active_now >= max_active:
+            return jsonify({
+                'error': f'Maximum active drivers reached ({max_active}).',
+                'max_active_drivers': max_active,
+            }), 409
 
     db.session.add(driver)
     db.session.commit()
@@ -191,6 +242,9 @@ def update_driver(driver_id):
     if not data:
         return jsonify({'error': 'No data provided'}), 400
 
+    previous_status = driver.status
+    previous_restaurant_id = driver.restaurant_id
+
     updatable_fields = [
         'name', 'phone', 'email', 'vehicle_type', 'vehicle_number',
         'license_number', 'address', 'emergency_contact', 'status',
@@ -209,6 +263,20 @@ def update_driver(driver_id):
     else:
         driver.owner_type = 'restaurant'
         driver.is_platform_driver = False
+
+    if driver.status == 'available' and driver.restaurant_id is not None:
+        status_or_scope_changed = (
+            previous_status != 'available'
+            or previous_restaurant_id != driver.restaurant_id
+        )
+        if status_or_scope_changed:
+            max_active = _max_active_drivers_limit(driver.restaurant_id)
+            active_now = _active_driver_count(driver.restaurant_id, exclude_driver_id=driver.id)
+            if active_now >= max_active:
+                return jsonify({
+                    'error': f'Maximum active drivers reached ({max_active}).',
+                    'max_active_drivers': max_active,
+                }), 409
 
     driver.updated_at = datetime.now(timezone.utc)
     db.session.commit()
@@ -232,6 +300,15 @@ def update_driver_status(driver_id):
     valid_statuses = ['available', 'on_delivery', 'returning', 'offline']
     if data['status'] not in valid_statuses:
         return jsonify({'error': f'Invalid status. Must be one of: {", ".join(valid_statuses)}'}), 400
+
+    if data['status'] == 'available' and driver.status != 'available' and driver.restaurant_id is not None:
+        max_active = _max_active_drivers_limit(driver.restaurant_id)
+        active_now = _active_driver_count(driver.restaurant_id, exclude_driver_id=driver.id)
+        if active_now >= max_active:
+            return jsonify({
+                'error': f'Maximum active drivers reached ({max_active}).',
+                'max_active_drivers': max_active,
+            }), 409
 
     driver.status = data['status']
     driver.updated_at = datetime.now(timezone.utc)

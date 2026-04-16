@@ -18,6 +18,8 @@ import { MapContainer, Marker, Polyline, TileLayer } from 'react-leaflet';
 import L from 'leaflet';
 import { formatCurrencyGBP } from '../../utils/currency';
 import api from '../../services/api';
+import { getMapLayerConfig } from '../../utils/mapLayers';
+import { DEFAULT_MAP_CENTER, readCachedRuntimeSettings } from '../../utils/runtimeSettings';
 
 const createPointIcon = (bg, text) => L.divIcon({
   className: '',
@@ -30,6 +32,7 @@ const pickupIcon = createPointIcon('#2563EB', 'P');
 const dropoffIcon = createPointIcon('#10B981', 'D');
 
 function DriverDeliveryView() {
+  const [runtimeSettings] = useState(() => readCachedRuntimeSettings());
   const [collecting, setCollecting] = useState(false);
 
   const handleCollectCash = async () => {
@@ -73,7 +76,11 @@ function DriverDeliveryView() {
     ? [Number(order.latitude), Number(order.longitude)]
     : null;
   const routePath = pickupPoint && dropoffPoint ? [pickupPoint, dropoffPoint] : [];
-  const mapCenter = pickupPoint || dropoffPoint || [51.5074, -0.1278];
+  const mapCenter = pickupPoint || dropoffPoint || DEFAULT_MAP_CENTER;
+  const resolvedMapZoom = Number.isFinite(Number(runtimeSettings.default_map_zoom))
+    ? Math.max(1, Math.min(20, Math.round(Number(runtimeSettings.default_map_zoom))))
+    : 12;
+  const mapLayer = getMapLayerConfig(runtimeSettings.map_style);
 
   const markDelivered = async () => {
     try {
@@ -105,8 +112,12 @@ function DriverDeliveryView() {
                 <Typography variant="body2" color="text.secondary">P = Pickup | D = Delivery</Typography>
               </Box>
               <Box sx={{ height: 400 }}>
-                <MapContainer key={`${mapCenter[0]}-${mapCenter[1]}`} center={mapCenter} zoom={12} style={{ width: '100%', height: '100%' }}>
-                  <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+                <MapContainer key={`${mapCenter[0]}-${mapCenter[1]}`} center={mapCenter} zoom={resolvedMapZoom} style={{ width: '100%', height: '100%' }}>
+                  <TileLayer
+                    url={mapLayer.url}
+                    attribution={mapLayer.attribution}
+                    maxZoom={mapLayer.maxZoom}
+                  />
                   {pickupPoint ? <Marker position={pickupPoint} icon={pickupIcon} /> : null}
                   {dropoffPoint ? <Marker position={dropoffPoint} icon={dropoffIcon} /> : null}
                   {routePath.length === 2 ? <Polyline positions={routePath} pathOptions={{ color: '#3B82F6', weight: 4 }} /> : null}

@@ -25,6 +25,8 @@ import { MapContainer, Marker, Polyline, TileLayer } from 'react-leaflet';
 import L from 'leaflet';
 import api from '../../services/api';
 import { formatCurrencyGBP } from '../../utils/currency';
+import { getMapLayerConfig } from '../../utils/mapLayers';
+import { DEFAULT_MAP_CENTER, readCachedRuntimeSettings } from '../../utils/runtimeSettings';
 
 const createPointIcon = (bg, text) => L.divIcon({
   className: '',
@@ -39,6 +41,7 @@ const driverIcon = createPointIcon('#F59E0B', 'Y');
 
 function DriverDashboard() {
   const navigate = useNavigate();
+  const [runtimeSettings, setRuntimeSettings] = useState(() => readCachedRuntimeSettings());
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
   const prevOrderIdRef = useRef(null);
@@ -60,10 +63,22 @@ function DriverDashboard() {
   };
 
   useEffect(() => {
-    load();
-    const timer = setInterval(load, 5000);
-    return () => clearInterval(timer);
+    setRuntimeSettings(readCachedRuntimeSettings());
   }, []);
+
+  const pollIntervalMs = Number.isFinite(Number(runtimeSettings.refresh_interval))
+    ? Math.max(1000, Math.round(Number(runtimeSettings.refresh_interval) * 1000))
+    : 5000;
+  const resolvedMapZoom = Number.isFinite(Number(runtimeSettings.default_map_zoom))
+    ? Math.max(1, Math.min(20, Math.round(Number(runtimeSettings.default_map_zoom))))
+    : 12;
+  const mapLayer = getMapLayerConfig(runtimeSettings.map_style);
+
+  useEffect(() => {
+    load();
+    const timer = setInterval(load, pollIntervalMs);
+    return () => clearInterval(timer);
+  }, [pollIntervalMs]);
 
   const driver = data?.driver;
   const activeOrder = data?.active_order;
@@ -121,7 +136,7 @@ function DriverDashboard() {
     if (driverPoint) return driverPoint;
     if (pickupPoint) return pickupPoint;
     if (dropoffPoint) return dropoffPoint;
-    return [51.5074, -0.1278];
+    return DEFAULT_MAP_CENTER;
   }, [driverPoint, pickupPoint, dropoffPoint]);
 
   const stats = useMemo(() => ({
@@ -245,8 +260,12 @@ function DriverDashboard() {
                 <Typography variant="body2" color="text.secondary">P = Pickup, D = Delivery, Y = Your location</Typography>
               </Box>
               <Box sx={{ height: 360 }}>
-                <MapContainer center={mapCenter} zoom={12} style={{ width: '100%', height: '100%' }}>
-                  <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+                <MapContainer center={mapCenter} zoom={resolvedMapZoom} style={{ width: '100%', height: '100%' }}>
+                  <TileLayer
+                    url={mapLayer.url}
+                    attribution={mapLayer.attribution}
+                    maxZoom={mapLayer.maxZoom}
+                  />
                   {pickupPoint ? <Marker position={pickupPoint} icon={pickupIcon} /> : null}
                   {dropoffPoint ? <Marker position={dropoffPoint} icon={dropoffIcon} /> : null}
                   {driverPoint ? <Marker position={driverPoint} icon={driverIcon} /> : null}

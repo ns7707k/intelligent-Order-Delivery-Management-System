@@ -404,7 +404,7 @@ const Settings = () => {
                   </Typography>
                   <Typography variant="caption" color="text.secondary">
                     This is the depot for VRP - all delivery/return ETAs are calculated from here.
-                    Get coordinates from Google Maps (right-click -> "What's here?").
+                    Get coordinates from Google Maps (right-click -&gt; "What's here?").
                   </Typography>
                 </Grid>
                 <Grid item xs={12} md={6}>

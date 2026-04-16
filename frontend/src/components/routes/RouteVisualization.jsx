@@ -20,7 +20,9 @@ import {
 } from '@mui/material';
 import { Route, Truck, Eye, RefreshCcw } from 'lucide-react';
 import L from 'leaflet';
-import { getAllRoutes, getDrivers, getRestaurant } from '../../services/api';
+import { getAllRoutes, getDrivers, getRestaurant, getSettings } from '../../services/api';
+import { getMapLayerConfig } from '../../utils/mapLayers';
+import { mergeRuntimeSettingsIntoCache, readCachedRuntimeSettings } from '../../utils/runtimeSettings';
 
 delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({
@@ -151,6 +153,7 @@ const getRoadRoute = async (stops) => {
 
 const RouteVisualization = () => {
   const navigate = useNavigate();
+  const [runtimeSettings, setRuntimeSettings] = useState(() => readCachedRuntimeSettings());
   const [routes, setRoutes] = useState([]);
   const [drivers, setDrivers] = useState([]);
   const [selectedRoute, setSelectedRoute] = useState(null);
@@ -160,6 +163,7 @@ const RouteVisualization = () => {
   const [mapCenterReady, setMapCenterReady] = useState(false);
   const mapRef = useRef(null);
   const mapInstanceRef = useRef(null);
+  const tileLayerRef = useRef(null);
   const restaurantMarkerRef = useRef(null);
   const driverMarkersRef = useRef({});
   const stopMarkersRef = useRef({});
@@ -167,6 +171,36 @@ const RouteVisualization = () => {
   const roadRequestIdRef = useRef(0);
   const previousSelectedRouteRef = useRef(null);
   const hasAutoFramedRouteRef = useRef(false);
+
+  const resolvedMapZoom = Number.isFinite(Number(runtimeSettings.default_map_zoom))
+    ? Math.max(1, Math.min(20, Math.round(Number(runtimeSettings.default_map_zoom))))
+    : DEFAULT_ZOOM;
+  const pollIntervalMs = Number.isFinite(Number(runtimeSettings.refresh_interval))
+    ? Math.max(1000, Math.round(Number(runtimeSettings.refresh_interval) * 1000))
+    : 5000;
+  const mapLayer = getMapLayerConfig(runtimeSettings.map_style);
+
+  useEffect(() => {
+    let active = true;
+
+    const hydrateRuntimeSettings = async () => {
+      try {
+        const settingsData = await getSettings();
+        if (!active || !settingsData || typeof settingsData !== 'object') {
+          return;
+        }
+        setRuntimeSettings(mergeRuntimeSettingsIntoCache(settingsData));
+      } catch {
+        // Keep cached defaults when settings endpoint fails.
+      }
+    };
+
+    hydrateRuntimeSettings();
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const fetchRoutes = useCallback(async (background = false) => {
     try {
@@ -202,7 +236,7 @@ const RouteVisualization = () => {
 
     const intervalId = window.setInterval(() => {
       fetchRoutes(true);
-    }, 5000);
+    }, pollIntervalMs);
 
     getRestaurant()
       .then((data) => {
@@ -224,7 +258,7 @@ const RouteVisualization = () => {
     return () => {
       window.clearInterval(intervalId);
     };
-  }, [fetchRoutes]);
+  }, [fetchRoutes, pollIntervalMs]);
 
   const getOrderStatusColor = (status) => {
     const colors = {
@@ -251,9 +285,10 @@ const RouteVisualization = () => {
       return undefined;
     }
 
-    mapInstanceRef.current = L.map(mapRef.current).setView(mapCenter, DEFAULT_ZOOM);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+    mapInstanceRef.current = L.map(mapRef.current).setView(mapCenter, resolvedMapZoom);
+    tileLayerRef.current = L.tileLayer(mapLayer.url, {
+      attribution: mapLayer.attribution,
+      maxZoom: mapLayer.maxZoom,
     }).addTo(mapInstanceRef.current);
 
     return () => {
@@ -267,6 +302,11 @@ const RouteVisualization = () => {
         routePolylineRef.current = null;
       }
 
+      if (tileLayerRef.current) {
+        tileLayerRef.current.remove();
+        tileLayerRef.current = null;
+      }
+
       if (restaurantMarkerRef.current) {
         restaurantMarkerRef.current.remove();
         restaurantMarkerRef.current = null;
@@ -275,7 +315,24 @@ const RouteVisualization = () => {
       mapInstanceRef.current?.remove();
       mapInstanceRef.current = null;
     };
-  }, [mapCenter]);
+  }, [mapCenter, mapLayer.attribution, mapLayer.maxZoom, mapLayer.url, resolvedMapZoom]);
+
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map) {
+      return;
+    }
+
+    if (tileLayerRef.current) {
+      map.removeLayer(tileLayerRef.current);
+      tileLayerRef.current = null;
+    }
+
+    tileLayerRef.current = L.tileLayer(mapLayer.url, {
+      attribution: mapLayer.attribution,
+      maxZoom: mapLayer.maxZoom,
+    }).addTo(map);
+  }, [mapLayer.attribution, mapLayer.maxZoom, mapLayer.url]);
 
   useEffect(() => {
     const map = mapInstanceRef.current;

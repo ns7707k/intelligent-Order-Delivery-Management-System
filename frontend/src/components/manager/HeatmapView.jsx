@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { Box, CircularProgress, Typography } from '@mui/material';
 import L from 'leaflet';
 import 'leaflet.heat';
+import { getMapLayerConfig } from '../../utils/mapLayers';
+import { DEFAULT_MAP_CENTER } from '../../utils/runtimeSettings';
 
 delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({
@@ -12,7 +14,7 @@ L.Icon.Default.mergeOptions({
 });
 
 const DEFAULT_ZOOM = 13;
-const DEFAULT_CENTER = [51.5074, -0.1278];
+const DEFAULT_CENTER = DEFAULT_MAP_CENTER;
 
 const toCoordinate = (latitude, longitude) => {
   const lat = Number.parseFloat(latitude);
@@ -141,10 +143,13 @@ const HeatmapView = ({
   restaurantLocation,
   selectedOrderId,
   onSelectOrder,
+  mapZoom,
+  mapStyle,
 }) => {
   const navigate = useNavigate();
   const mapRef = useRef(null);
   const mapInstanceRef = useRef(null);
+  const tileLayerRef = useRef(null);
   const heatLayerRef = useRef(null);
   const restaurantMarkerRef = useRef(null);
   const orderMarkersRef = useRef({});
@@ -159,6 +164,12 @@ const HeatmapView = ({
     return (data || []).find((point) => Number(point.order_id ?? point.orderId) === Number(selectedOrderId)) || null;
   }, [data, selectedOrderId]);
 
+  const resolvedMapZoom = Number.isFinite(Number(mapZoom))
+    ? Math.max(1, Math.min(20, Math.round(Number(mapZoom))))
+    : DEFAULT_ZOOM;
+
+  const mapLayer = getMapLayerConfig(mapStyle);
+
   useEffect(() => {
     if (mapInstanceRef.current || !mapRef.current) {
       return undefined;
@@ -168,10 +179,11 @@ const HeatmapView = ({
       ? toCoordinate(restaurantLocation[0], restaurantLocation[1])
       : null;
 
-    mapInstanceRef.current = L.map(mapRef.current).setView(initialCenter || DEFAULT_CENTER, DEFAULT_ZOOM);
+    mapInstanceRef.current = L.map(mapRef.current).setView(initialCenter || DEFAULT_CENTER, resolvedMapZoom);
 
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+    tileLayerRef.current = L.tileLayer(mapLayer.url, {
+      attribution: mapLayer.attribution,
+      maxZoom: mapLayer.maxZoom,
     }).addTo(mapInstanceRef.current);
 
     setTimeout(() => {
@@ -187,6 +199,11 @@ const HeatmapView = ({
         heatLayerRef.current = null;
       }
 
+      if (tileLayerRef.current) {
+        tileLayerRef.current.remove();
+        tileLayerRef.current = null;
+      }
+
       if (selectedRouteRef.current) {
         selectedRouteRef.current.remove();
         selectedRouteRef.current = null;
@@ -200,7 +217,24 @@ const HeatmapView = ({
       mapInstanceRef.current?.remove();
       mapInstanceRef.current = null;
     };
-  }, [restaurantLocation]);
+  }, [restaurantLocation, mapLayer.attribution, mapLayer.maxZoom, mapLayer.url, resolvedMapZoom]);
+
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map) {
+      return;
+    }
+
+    if (tileLayerRef.current) {
+      map.removeLayer(tileLayerRef.current);
+      tileLayerRef.current = null;
+    }
+
+    tileLayerRef.current = L.tileLayer(mapLayer.url, {
+      attribution: mapLayer.attribution,
+      maxZoom: mapLayer.maxZoom,
+    }).addTo(map);
+  }, [mapLayer.attribution, mapLayer.maxZoom, mapLayer.url]);
 
   useEffect(() => {
     const map = mapInstanceRef.current;
@@ -396,7 +430,7 @@ const HeatmapView = ({
     }
 
     if (boundsPoints.length === 1) {
-      map.setView(boundsPoints[0], DEFAULT_ZOOM);
+      map.setView(boundsPoints[0], resolvedMapZoom);
       hasAutoFramedRef.current = true;
       previousViewModeRef.current = viewMode;
       return;
@@ -409,10 +443,10 @@ const HeatmapView = ({
       return;
     }
 
-    map.setView(DEFAULT_CENTER, DEFAULT_ZOOM);
+    map.setView(DEFAULT_CENTER, resolvedMapZoom);
     hasAutoFramedRef.current = true;
     previousViewModeRef.current = viewMode;
-  }, [data, restaurantLocation, selectedPoint, viewMode]);
+  }, [data, restaurantLocation, resolvedMapZoom, selectedPoint, viewMode]);
 
   return (
     <Box sx={{ width: '100%', height: '100%', position: 'relative' }}>

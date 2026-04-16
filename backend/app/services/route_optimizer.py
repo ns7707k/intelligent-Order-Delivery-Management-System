@@ -109,7 +109,7 @@ def get_eligible_drivers(restaurant_id):
     """
     from app.models.driver import Driver
     from app.models.restaurant import Restaurant
-    from app.models.settings import Settings
+    from app.models.settings import Settings, DEFAULT_SETTINGS
 
     print(f"[ASSIGN] ========== get_eligible_drivers(restaurant_id={restaurant_id}) ==========")
     
@@ -160,6 +160,33 @@ def get_eligible_drivers(restaurant_id):
 
     print(f"[ASSIGN] Eligible drivers count: {len(eligible)}")
     print(f"[ASSIGN] Eligible drivers: {[d.id for d in eligible]}")
+
+    def _to_positive_int(value, fallback=1):
+        try:
+            parsed = int(float(value))
+        except (TypeError, ValueError):
+            return int(fallback)
+        return parsed if parsed > 0 else int(fallback)
+
+    default_limit = _to_positive_int(DEFAULT_SETTINGS['max_active_drivers'][0], fallback=20)
+    configured_limit = Settings.get_typed_for_restaurant(
+        'max_active_drivers',
+        restaurant_id,
+        fallback=default_limit,
+    )
+    max_active_limit = _to_positive_int(configured_limit, fallback=default_limit)
+
+    eligible.sort(key=lambda d: (
+        0 if d.status == 'available' else 1,
+        d.active_deliveries or 0,
+        -(d.rating or 0),
+        str(d.id),
+    ))
+
+    if len(eligible) > max_active_limit:
+        print(f"[ASSIGN] Applying max_active_drivers limit={max_active_limit} (before={len(eligible)})")
+        eligible = eligible[:max_active_limit]
+
     return eligible
 
 

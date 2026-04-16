@@ -19,6 +19,12 @@ import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 import { createOrder, geocodeAddress, getOrderPricingConfig, getSettings } from '../../services/api';
 import { formatCurrencyGBP } from '../../utils/currency';
+import { getMapLayerConfig } from '../../utils/mapLayers';
+import {
+  DEFAULT_MAP_CENTER,
+  mergeRuntimeSettingsIntoCache,
+  readCachedRuntimeSettings,
+} from '../../utils/runtimeSettings';
 
 const SETTINGS_CACHE_KEY = 'odms_settings_cache';
 
@@ -80,8 +86,14 @@ const CreateOrder = () => {
     default_delivery_fee: 4.99,
     tax_rate: 8.0,
   });
+  const [runtimeSettings, setRuntimeSettings] = useState(() => readCachedRuntimeSettings());
   const [pricingConfigLoading, setPricingConfigLoading] = useState(true);
   const [pricingConfigWarning, setPricingConfigWarning] = useState(null);
+
+  const resolvedMapZoom = Number.isFinite(Number(runtimeSettings.default_map_zoom))
+    ? Math.max(1, Math.min(20, Math.round(Number(runtimeSettings.default_map_zoom))))
+    : 15;
+  const mapLayer = getMapLayerConfig(runtimeSettings.map_style);
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -176,6 +188,10 @@ const CreateOrder = () => {
       try {
         const settings = await getSettings();
         if (!active) return;
+
+        if (settings && typeof settings === 'object') {
+          setRuntimeSettings(mergeRuntimeSettingsIntoCache(settings));
+        }
 
         if (applyPricingConfig(settings)) {
           persistPricingCache(settings);
@@ -347,8 +363,11 @@ const CreateOrder = () => {
 
                     <Box sx={{ height: 200, borderRadius: 2, overflow: 'hidden', mb: 2 }}>
                       <MapContainer
-                        center={[geocodingResult.lat, geocodingResult.lng]}
-                        zoom={15}
+                        center={[
+                          geocodingResult?.lat ?? DEFAULT_MAP_CENTER[0],
+                          geocodingResult?.lng ?? DEFAULT_MAP_CENTER[1],
+                        ]}
+                        zoom={resolvedMapZoom}
                         dragging={false}
                         zoomControl={false}
                         scrollWheelZoom={false}
@@ -358,7 +377,11 @@ const CreateOrder = () => {
                         keyboard={false}
                         style={{ height: '100%', width: '100%' }}
                       >
-                        <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+                        <TileLayer
+                          url={mapLayer.url}
+                          attribution={mapLayer.attribution}
+                          maxZoom={mapLayer.maxZoom}
+                        />
                         <Marker position={[geocodingResult.lat, geocodingResult.lng]} icon={pinIcon} />
                       </MapContainer>
                     </Box>
