@@ -384,14 +384,90 @@ const KitchenView = () => {
     setWaitingForConfirmation(false);
   };
 
+  const getAssignDriverNotification = (allocationResult, orderId) => {
+    const routes = Array.isArray(allocationResult?.routes) ? allocationResult.routes : [];
+    const rejected = Array.isArray(allocationResult?.rejected) ? allocationResult.rejected : [];
+    const rawMessage = typeof allocationResult?.message === 'string'
+      ? allocationResult.message.trim()
+      : '';
+    const normalizedMessage = rawMessage.toLowerCase();
+
+    if (routes.length > 0) {
+      return {
+        severity: 'success',
+        message: `Driver assigned for order #${orderId}`,
+      };
+    }
+
+    const rejectedReason = rejected.find((item) => typeof item?.reason === 'string')?.reason;
+    if (rejectedReason) {
+      return {
+        severity: 'warning',
+        message: `Could not assign driver for order #${orderId}: ${rejectedReason}`,
+      };
+    }
+
+    if (normalizedMessage.includes('no available drivers') || normalizedMessage.includes('no eligible drivers')) {
+      return {
+        severity: 'warning',
+        message: 'Driver is not available right now. Please try again shortly.',
+      };
+    }
+
+    if (normalizedMessage.includes('all orders violate sla constraints')) {
+      return {
+        severity: 'warning',
+        message: `Could not assign driver for order #${orderId} because delivery constraints were not met.`,
+      };
+    }
+
+    if (normalizedMessage.includes('no valid orders found') || normalizedMessage.includes('no orders to optimize')) {
+      return {
+        severity: 'warning',
+        message: `Order #${orderId} is no longer eligible for assignment.`,
+      };
+    }
+
+    if (normalizedMessage.includes('already assigned')) {
+      return {
+        severity: 'info',
+        message: `Order #${orderId} already has a driver assigned.`,
+      };
+    }
+
+    if (normalizedMessage.includes('created 0 optimized route')) {
+      return {
+        severity: 'warning',
+        message: `No driver was assigned to order #${orderId}.`,
+      };
+    }
+
+    if (rawMessage) {
+      return {
+        severity: 'info',
+        message: rawMessage,
+      };
+    }
+
+    return {
+      severity: 'warning',
+      message: `Could not assign driver for order #${orderId}.`,
+    };
+  };
+
   const handleAssignDriverRetry = async (orderId) => {
     try {
-      await optimizeRoute([orderId]);
+      const allocationResult = await optimizeRoute([orderId]);
       await refreshOrders();
-      showNotification(`Assignment retried for order #${orderId}`, 'info');
+      const notificationConfig = getAssignDriverNotification(allocationResult, orderId);
+      showNotification(notificationConfig.message, notificationConfig.severity);
     } catch (error) {
       console.error('Failed to retry assignment:', error);
-      showNotification(`Failed to retry assignment for order #${orderId}`, 'error');
+      const backendMessage = error?.response?.data?.error || error?.response?.data?.message;
+      const message = backendMessage
+        ? `Failed to assign driver for order #${orderId}: ${backendMessage}`
+        : `Failed to assign driver for order #${orderId}`;
+      showNotification(message, 'error');
     }
   };
 
